@@ -1,0 +1,21 @@
+services:
+  ticket-pipeline:
+    build:
+      context: .
+      dockerfile: dockerfile
+      target: runtime
+    container_name: ticket-pipeline
+    ports:
+      - "${API_PORT:-8000}:8000"
+    env_file:
+      - path: .env.local
+        required: true
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/tickets/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
