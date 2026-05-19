@@ -1,5 +1,6 @@
-from classes.StateStore.state_store import StateStore, StateStoreAgent
 import os
+
+from classes.StateStore.state_store import StateStore
 
 path = os.path.join(os.getcwd(), "test.db")
 print(path)

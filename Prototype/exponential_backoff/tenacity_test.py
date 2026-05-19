@@ -1,5 +1,6 @@
-from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 import time
+
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 t1 = time.time()
 

@@ -16,9 +16,9 @@ from __future__ import annotations
 import inspect
 import re
 import sys
-from typing import Any, Callable, Type, Optional, Dict
+from typing import Any, Callable, Dict, Type
 
-from bubus import EventBus as BuBus, BaseEvent
+from bubus import BaseEvent, EventBus as BuBus
 
 
 class _BaseEventPayload(BaseEvent):
@@ -172,7 +172,7 @@ class BaseEventBus:
             except Exception as e:
                 if self.logger:
                     await self.logger.error(
-                        f"Event handler raised an exception",
+                        "Event handler raised an exception",
                         topic=topic,
                         handler_name=getattr(handler, "__name__", repr(handler)),
                         error=str(e),

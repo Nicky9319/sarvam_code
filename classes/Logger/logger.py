@@ -12,14 +12,14 @@ Owns:
     output routing – stdout / file / structured JSON
 """
 
-import json
-import inspect
 import asyncio
+import inspect
+import json
 import sys
-from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, Optional, TextIO, Union
 from enum import Enum
+from pathlib import Path
+from typing import Dict, Optional, TextIO, Union
 
 
 class LogFormat(Enum):

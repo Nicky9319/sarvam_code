@@ -1,9 +1,8 @@
-import aiosqlite
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import uuid
-import json
-from pydantic import BaseModel, field_validator, model_validator
+from typing import Any, Dict, List, Literal, Tuple, Union
 
+import aiosqlite
+from pydantic import BaseModel, field_validator
 
 # ---------------------------------------------------------------------------
 # Input models
@@ -353,7 +352,7 @@ class StateStoreSidecar:
 
     async def get_state_info(self, key: str = None):
         """Returns state at prefix.key. Pass empty string to get the full sidecar namespace."""
-        if key == "" or key == None:
+        if key == "" or key is None:
             sub_key = self.prefix
         else:
             sub_key = f"{self.prefix}.{key}"

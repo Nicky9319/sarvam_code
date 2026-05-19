@@ -17,12 +17,13 @@ Usage:
 """
 
 import inspect
-import jsonpatch
 from contextvars import ContextVar
-from typing import Any, List, get_type_hints, Literal, get_origin, get_args
+from typing import Any, List, Literal, get_args, get_origin, get_type_hints
 
-from classes.StateStore.state_store import StateStoreSidecar
+import jsonpatch
+
 from classes.Logger.logger import LogAgent
+from classes.StateStore.state_store import StateStoreSidecar
 
 
 class ReducerValidationError(Exception):
@@ -116,7 +117,7 @@ class BaseReducers:
             if value is None or param_type is None:
                 continue
 
-            if param_type == str:
+            if param_type is str:
                 if not isinstance(value, str):
                     raise ReducerValidationError(f"{param_name} must be a string")
 
