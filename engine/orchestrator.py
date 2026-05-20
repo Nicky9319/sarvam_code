@@ -24,25 +24,25 @@ class TicketPipeline:
         self._logger_agent = await self.logger.get_agent("ticket_pipeline")
 
         self.reducers = TicketPipelineReducers(
-            logger=self._logger_agent,
+            logger=await self._logger_agent.get_sidecar("reducers"),
             state_store_sidecar=self.state_store_sidecar,
         )
         await self.reducers.initialize()
 
         self.operators = TicketPipelineOperators(
-            logger=self._logger_agent,
+            logger=await self._logger_agent.get_sidecar("operators"),
             state_store_sidecar=self.state_store_sidecar,
             sarvam_base_url=self.sarvam_base_url,
             sarvam_api_key=self.sarvam_api_key,
         )
+        await self.operators.initialize()
 
         self.application = TicketPipelineApplication(
             reducers=self.reducers,
-            logger=self._logger_agent,
+            logger=await self._logger_agent.get_sidecar("application"),
             operators=self.operators,
-        )
-
-        await self.operators.initialize()
+        )   
+        await self.application.initialize()
 
         # Wire application into API routes handler
         self.operators._api_routes_handler.application = self.application

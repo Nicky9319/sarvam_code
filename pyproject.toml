@@ -44,3 +44,7 @@ engine = ["**/*.py"]
 dev = [
     "pytest>=9.0.3",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["engine/operators/tests"]
+pythonpath = ["."]
