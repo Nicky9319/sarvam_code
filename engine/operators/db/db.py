@@ -5,6 +5,17 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
 from pymongo import MongoClient
+from engine.models.db_models import (
+    AddBatchOutput,
+    AddRequestOutput,
+    AddTicketOutput,
+    BatchRecord,
+    GetAllBatchesCompletedOutput,
+    GetBatchInfoAndTicketsOutput,
+    GetTickerResponsesOutput,
+    TicketRecord,
+    TicketResponseOutput,
+)
 from pymongo.database import Database
 from pymongo.collection import Collection
 from pymongo.errors import CollectionInvalid, PyMongoError
@@ -21,12 +32,12 @@ class DBDatabase:
         db = DBDatabase(host="localhost", port=27017, logger=logger)
         await db.initialize()
 
-        request_id = await db.add_request()
-        batch_number = await db.add_batch(request_id)
-        ticket_id = await db.add_ticket(request_id, "ticket content", batch_number)
+        request_output = await db.add_request()
+        batch_output = await db.add_batch(request_output.request_id)
+        ticket_output = await db.add_ticket(request_output.request_id, "ticket content", batch_output.batch_number)
 
-        completed = await db.get_all_batches_completed(request_id)
-        responses = await db.get_ticker_responses(request_id)
+        completed = await db.get_all_batches_completed(request_output.request_id)
+        responses = await db.get_ticker_responses(request_output.request_id)
     """
 
     DEFAULT_DATABASE = "ticket_pipeline"
@@ -256,7 +267,7 @@ class DBDatabase:
         state: str = "classification",
         response_summary: Optional[str] = None,
         request_id: Optional[str] = None,
-    ) -> str:
+    ) -> AddRequestOutput:
         """
         Add a new request record.
 
@@ -306,7 +317,7 @@ class DBDatabase:
                 request_id=request_id,
                 state=state
             )
-            return request_id
+            return AddRequestOutput(request_id=request_id)
 
         except Exception as e:
             await self._logger.error(
@@ -368,7 +379,7 @@ class DBDatabase:
         request_id: str,
         batch_state: str = "queued",
         batch_summary: Optional[str] = None,
-    ) -> int:
+    ) -> AddBatchOutput:
         """
         Add a new batch record.
 
@@ -435,7 +446,7 @@ class DBDatabase:
                 batch_number=batch_number,
                 request_id=request_id
             )
-            return batch_number
+            return AddBatchOutput(batch_number=batch_number)
 
         except Exception as e:
             await self._logger.error(
@@ -503,7 +514,7 @@ class DBDatabase:
         state: str = "queued",
         response: Optional[str] = None,
         ticket_id: Optional[str] = None,
-    ) -> str:
+    ) -> AddTicketOutput:
         """
         Add a new ticket record.
 
@@ -558,7 +569,7 @@ class DBDatabase:
                 ticket_id=ticket_id,
                 request_id=request_id
             )
-            return ticket_id
+            return AddTicketOutput(ticket_id=ticket_id)
 
         except Exception as e:
             await self._logger.error(
@@ -615,7 +626,7 @@ class DBDatabase:
             raise
 
     # Query operations
-    async def get_all_batches_completed(self, request_id: str) -> bool:
+    async def get_all_batches_completed(self, request_id: str) -> GetAllBatchesCompletedOutput:
         """
         Check if all batches for a request are in 'processed' state.
 
@@ -650,16 +661,16 @@ class DBDatabase:
             if not batches:
                 await self._logger.debug("No batches found for request_id", request_id=request_id)
                 await self._logger.info("Function ended successfully", result=False)
-                return False
+                return GetAllBatchesCompletedOutput(completed=False)
 
-            result = all(b.get("batch_state") == "processed" for b in batches)
+            completed = all(b.get("batch_state") == "processed" for b in batches)
 
             await self._logger.info(
                 "Function ended successfully",
-                result=result,
+                result=completed,
                 total_batches=len(batches)
             )
-            return result
+            return GetAllBatchesCompletedOutput(completed=completed)
 
         except Exception as e:
             await self._logger.error(
@@ -669,7 +680,7 @@ class DBDatabase:
             )
             raise
 
-    async def get_ticker_responses(self, request_id: str) -> List[Dict[str, Any]]:
+    async def get_ticker_responses(self, request_id: str) -> GetTickerResponsesOutput:
         """
         Get all tickets for a request with their state and content.
 
@@ -701,13 +712,13 @@ class DBDatabase:
             )
 
             responses = [
-                {
-                    "ticket_id": t["ticket_id"],
-                    "content": t["content"],
-                    "state": t["state"],
-                    "response": t.get("response"),
-                    "batch_number": t["batch_number"],
-                }
+                TicketResponseOutput(
+                    ticket_id=t["ticket_id"],
+                    content=t["content"],
+                    state=t["state"],
+                    response=t.get("response"),
+                    batch_number=t["batch_number"],
+                )
                 for t in tickets
             ]
 
@@ -715,7 +726,7 @@ class DBDatabase:
                 "Function ended successfully",
                 count=len(responses)
             )
-            return responses
+            return GetTickerResponsesOutput(responses=responses)
 
         except Exception as e:
             await self._logger.error(
@@ -725,5 +736,55 @@ class DBDatabase:
             )
             raise
 
+    async def get_batch_info_and_tickets(self, batch_id: str) -> GetBatchInfoAndTicketsOutput:
+        """
+        Get the batch information and tickets for a batch.
 
-        
+        Processing Steps:
+        Step 1: Query the batch information
+        Step 2: Query the tickets for the batch
+        """
+        try:
+            await self._logger.info(
+                "Function started",
+                batch_id=batch_id
+            )
+
+            try:
+                batch = self.batches_collection.find_one({"batch_id": batch_id})
+            except PyMongoError as e:
+                await self._logger.error(
+                    "MongoDB query failed",
+                    batch_id=batch_id,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                raise
+
+            try:
+                tickets = list(self.tickets_collection.find({"batch_id": batch_id}))
+            except PyMongoError as e:
+                await self._logger.error(
+                    "MongoDB query failed",
+                    batch_id=batch_id,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                raise
+
+            await self._logger.debug(
+                "Tickets query completed",
+                batch_id=batch_id,
+                count=len(tickets)
+            )
+
+            batch_record = BatchRecord.model_validate(batch) if batch else None
+            ticket_records = [TicketRecord.model_validate(t) for t in tickets]
+            return GetBatchInfoAndTicketsOutput(batch=batch_record, tickets=ticket_records)
+        except Exception as e:
+            await self._logger.error(
+                "Function ended with exception",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
