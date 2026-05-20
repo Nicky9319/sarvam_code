@@ -3,7 +3,7 @@ import os
 from engine.classes.StateStore.state_store import StateStoreSidecar
 from engine.operators.api_routes_handler import APIRoutesHandler
 from engine.operators.http_client import HTTPAPIClient
-from engine.operators.DB.db import DBDatabase
+from engine.operators.db.db import DBDatabase
 
 
 class TicketPipelineOperators:
@@ -21,10 +21,11 @@ class TicketPipelineOperators:
 
     async def initialize(self) -> None:
         self._http_api_client = HTTPAPIClient(
-            base_url=self.sarvam_base_url,
-            api_key=self.sarvam_api_key,
+            sarvam_base_url=self.sarvam_base_url,
+            sarvam_api_key=self.sarvam_api_key,
             logger=self.logger,
         )
+        await self._http_api_client.intialize_client()
 
         self._db = DBDatabase(
             host=os.getenv("MONGODB_HOST", "localhost"),
