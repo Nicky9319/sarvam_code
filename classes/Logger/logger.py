@@ -102,11 +102,11 @@ class LogSidecar:
         """Log at ERROR level."""
         await self._emit("ERROR", message, **kwargs)
 
-    def _get_caller_function_name(self) -> Optional[str]:
-        """Extract the function name from the caller's stack frame.
+    def _get_caller_info(self) -> tuple[Optional[str], Optional[str]]:
+        """Extract function name and file path from the caller's stack frame.
 
         Walks up the call stack to find the actual caller:
-        Frame 0: _get_caller_function_name
+        Frame 0: _get_caller_info
         Frame 1: _emit
         Frame 2: debug/info/warning/error
         Frame 3: User code (actual caller)
@@ -114,13 +114,12 @@ class LogSidecar:
         frame = inspect.currentframe()
         try:
             if frame is not None:
-                # Walk up: _get_caller_function_name -> _emit -> public method -> user code
                 caller_frame = frame.f_back.f_back.f_back
                 if caller_frame is not None:
-                    return caller_frame.f_code.co_name
+                    return caller_frame.f_code.co_name, caller_frame.f_code.co_filename
         finally:
             del frame
-        return None
+        return None, None
 
     async def _emit(self, level: str, message: str, **kwargs) -> None:
         """Internal emit - checks level and outputs."""
@@ -141,9 +140,11 @@ class LogSidecar:
             log_entry["identifier"] = self.identifier
 
         if self._include_function_name:
-            caller_func = self._get_caller_function_name()
+            caller_func, caller_file = self._get_caller_info()
             if caller_func:
                 log_entry["function"] = caller_func
+            if caller_file:
+                log_entry["source_file"] = caller_file
 
         log_entry.update(kwargs)
 
@@ -157,6 +158,9 @@ class LogSidecar:
             function_str = log_entry.get("function", "")
 
             extra_fields = []
+            source_file = log_entry.pop("source_file", None)
+            if source_file:
+                extra_fields.append(f"source_file={source_file}")
             for key, value in kwargs.items():
                 extra_fields.append(f"{key}={value}")
             extra_str = " | ".join(extra_fields) if extra_fields else ""
