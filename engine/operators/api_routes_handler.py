@@ -86,7 +86,7 @@ class APIRoutesHandler:
         await self.logger.debug("Starting step 1: Registering health endpoint")
 
         @app.get("/api/v1/tickets/health")
-        @self._limiter.limit("1000/minute")
+        @self._limiter.limit("10/minute")
         async def health(request: Request):
             return {"status": "ok"}
 
@@ -95,7 +95,7 @@ class APIRoutesHandler:
         await self.logger.debug("Starting step 2: Registering parse tickets endpoint")
 
         @app.post("/api/v1/tickets/parse", response_model=TicketParseBatchResponse)
-        @self._limiter.limit("200/minute")
+        @self._limiter.limit("5/minute")
         async def parse_tickets(request: Request, body: TicketParseRequest):
             return TicketParseBatchResponse(
                 results=[],
