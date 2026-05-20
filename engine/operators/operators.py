@@ -1,5 +1,8 @@
+import os
+
 from engine.classes.StateStore.state_store import StateStoreSidecar
-from engine.operators.api_routes_handler import APIRoutesHandler, HTTPAPIClient
+from engine.operators.api_routes_handler import APIRoutesHandler
+from engine.operators.http_client import HTTPAPIClient
 from engine.operators.DB.db import DBDatabase
 
 
@@ -24,13 +27,12 @@ class TicketPipelineOperators:
         )
 
         self._db = DBDatabase(
-            host="localhost",
-            port=3306,
-            user="root",
-            password="",
-            database="ticket_pipeline",
+            host=os.getenv("MONGODB_HOST", "localhost"),
+            port=int(os.getenv("MONGODB_PORT", "27017")),
+            database=os.getenv("MONGODB_DATABASE", "ticket_pipeline"),
             logger=self.logger,
         )
+        self._db.initialize()
 
         self._api_routes_handler = APIRoutesHandler(
             application=None,

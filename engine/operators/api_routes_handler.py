@@ -1,3 +1,5 @@
+from typing import Optional
+
 import asyncio
 
 import uvicorn
@@ -6,6 +8,28 @@ from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
+
+
+class TicketParseRequest(BaseModel):
+    tickets: list[str]
+    estimate_only: bool = False
+
+
+class TicketParseResponse(BaseModel):
+    ticket_id: str
+    intent: str
+    priority: str
+    category: str
+    summary: str
+    success: bool = True
+    error: Optional[str] = None
+
+
+class TicketParseBatchResponse(BaseModel):
+    results: list[TicketParseResponse]
+    total: int
+    success_count: int
+    failure_count: int
 
 
 class ProcessTicketsRequest(BaseModel):

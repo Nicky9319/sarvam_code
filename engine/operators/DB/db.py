@@ -1,34 +1,7 @@
-from typing import List, Optional
+from typing import Optional
 
-import aiomysql
-from pydantic import BaseModel, Field
-
-
-class DBExecuteRequest(BaseModel):
-    query: str
-    params: Optional[tuple] = None
-
-
-class DBRowResponse(BaseModel):
-    row: Optional[dict] = None
-    success: bool = True
-    error: Optional[str] = None
-
-
-class DBRowsResponse(BaseModel):
-    rows: List[dict] = Field(default_factory=list)
-    success: bool = True
-    error: Optional[str] = None
-
-
-class DBTransactionRequest(BaseModel):
-    queries: List[tuple]
-
-
-class DBTransactionResponse(BaseModel):
-    success: bool = True
-    results: Optional[List[dict]] = None
-    error: Optional[str] = None
+from pymongo import MongoClient
+from pymongo.database import Database
 
 
 class DBDatabase:
@@ -36,37 +9,38 @@ class DBDatabase:
         self,
         host: str,
         port: int,
-        user: str,
-        password: str,
         database: str,
         logger,
     ) -> None:
         self._host = host
         self._port = port
-        self._user = user
-        self._password = password
         self._database = database
         self._logger = logger
-        self._pool: Optional[aiomysql.Pool] = None
+        self._client: Optional[MongoClient] = None
+        self._db: Optional[Database] = None
 
-    async def initialize(self) -> None:
-        self._pool = await aiomysql.create_pool(
+    def initialize(self) -> None:
+        self._client = MongoClient(
             host=self._host,
             port=self._port,
-            user=self._user,
-            password=self._password,
-            db=self._database,
-            minsize=10,
-            maxsize=20,
-            autocommit=True,
         )
+        self._db = self._client[self._database]
 
-    async def cleanup(self) -> None:
-        if self._pool:
-            self._pool.close()
-            await self._pool.wait_closed()
-            self._pool = None
+    async def initialize_async(self) -> None:
+        self.initialize()
+
+    def cleanup(self) -> None:
+        if self._client:
+            self._client.close()
+            self._client = None
+            self._db = None
 
     @property
     def is_initialized(self) -> bool:
-        return self._pool is not None
+        return self._client is not None
+
+    @property
+    def db(self) -> Database:
+        if not self._db:
+            raise RuntimeError("Database not initialized. Call initialize() first.")
+        return self._db

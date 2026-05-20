@@ -5,15 +5,20 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "pymongo>=4.10.0",
     "aiomysql>=0.3.2",
     "aiosqlite>=0.22.1",
     "fastapi>=0.136.1",
+    "uvicorn>=0.32.0",
     "httpx>=0.28.1",
     "pydantic>=2.13.4",
     "ruff>=0.15.13",
     "slowapi>=0.1.9",
     "tenacity>=9.1.4",
     "python-dotenv>=1.0.0",
+    "jsonpatch>=1.33.0",
+    "sarvamai>=0.1.28",
+    "openai>=2.37.0",
 ]
 
 [tool.ruff]
