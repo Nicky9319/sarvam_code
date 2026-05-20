@@ -31,14 +31,3 @@ class TicketParseBatchResponse(BaseModel):
     success_count: int
     failure_count: int
 
-
-class ProcessTicketsRequest(BaseModel):
-    tickets: list
-    estimate_only: bool = False
-
-
-class ProcessTicketsResponse(BaseModel):
-    success_count: int
-    failure_count: int
-    results: list
-    estimate: dict = None
