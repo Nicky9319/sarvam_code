@@ -19,6 +19,7 @@ dependencies = [
     "jsonpatch>=1.33.0",
     "sarvamai>=0.1.28",
     "openai>=2.37.0",
+    "prometheus-fastapi-instrumentator>=6.1.0",
 ]
 
 [tool.ruff]
@@ -29,3 +30,11 @@ select = ["E", "F", "I"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
+
+[tool.setuptools]
+package-dir = {"" = "."}
+packages = ["classes", "engine"]
+
+[tool.setuptools.package-data]
+classes = ["py.typed", "**/*.py"]
+engine = ["**/*.py"]
