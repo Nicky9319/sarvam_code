@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import asyncio
 import os
 import uvicorn
@@ -12,7 +12,9 @@ from slowapi.errors import RateLimitExceeded
 from fastapi.responses import JSONResponse
 
 from classes.Logger.logger import LogSidecar
-from engine.application import TicketPipelineApplication
+
+if TYPE_CHECKING:
+    from engine.application import TicketPipelineApplication
 
 
 from engine.models.api_request_models import (
@@ -26,8 +28,8 @@ from engine.models.api_request_models import (
 # ---------------------------------------------------------------------------
 
 class APIRoutesHandler:
-    def __init__(self, application, logger, host: str = "0.0.0.0", port: int = 8000):
-        self.application: TicketPipelineApplication = application
+    def __init__(self, application: "TicketPipelineApplication", logger: LogSidecar, host: str = "0.0.0.0", port: int = 8000):
+        self.application: "TicketPipelineApplication" = application
         self.logger: LogSidecar = logger
         self.host: str = host
         self.port: int = port
@@ -106,16 +108,14 @@ class APIRoutesHandler:
 
     async def initialize(self) -> None:
         """
-        Initialize the FastAPI server and start it.
+        Build the FastAPI app, configure uvicorn, but do not start serving.
 
-        This method builds the FastAPI app, configures uvicorn, and starts
-        the server. It sets up rate limiting, Prometheus instrumentation,
-        and all API routes.
+        This method builds the FastAPI app, configures uvicorn, and registers
+        all routes. It sets up rate limiting, Prometheus instrumentation.
 
         Processing Steps:
         Step 1: Build FastAPI app with middleware and configuration
-        Step 2: Create uvicorn server configuration
-        Step 3: Start uvicorn server as async task
+        Step 2: Configure uvicorn server
         """
         try:
             await self.logger.info(
@@ -127,7 +127,7 @@ class APIRoutesHandler:
             # Step 1: Build FastAPI app
             await self.logger.debug("Starting step 1: Building FastAPI app")
 
-            app : FastAPI = FastAPI(title="TicketPipeline", version="1.0.0")
+            app: FastAPI = FastAPI(title="TicketPipeline", version="1.0.0")
 
             app.state.limiter = self._limiter
             app.add_middleware(SlowAPIMiddleware)
@@ -143,8 +143,8 @@ class APIRoutesHandler:
 
             await self.logger.debug("Step 1 completed")
 
-            # Step 2: Create uvicorn server configuration
-            await self.logger.debug("Starting step 2: Creating uvicorn server config")
+            # Step 2: Configure uvicorn server
+            await self.logger.debug("Starting step 2: Configuring uvicorn server")
 
             self._app = app
             config = uvicorn.Config(
@@ -156,13 +156,6 @@ class APIRoutesHandler:
             self._server = uvicorn.Server(config)
 
             await self.logger.debug("Step 2 completed")
-
-            # Step 3: Start uvicorn server as async task
-            await self.logger.debug("Starting step 3: Starting uvicorn server")
-
-            self._task = asyncio.ensure_future(self._server.serve())
-
-            await self.logger.debug("Step 3 completed")
 
             await self.logger.info(
                 "Function ended successfully",

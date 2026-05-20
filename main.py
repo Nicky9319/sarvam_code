@@ -17,10 +17,13 @@ async def main():
     )
     await pipeline.initialize()
 
+    api_handler = pipeline.operators.api_routes_handler
+    server = api_handler._server
+    task = asyncio.ensure_future(server.serve())
+
     # Keep the server running
     try:
-        while True:
-            await asyncio.sleep(3600)
+        await task
     except asyncio.CancelledError:
         pass
     finally:
