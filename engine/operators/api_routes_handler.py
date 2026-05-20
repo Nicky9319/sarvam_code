@@ -212,3 +212,4 @@ class APIRoutesHandler:
     @property
     def app(self) -> Optional[FastAPI]:
         return self._app
+    
