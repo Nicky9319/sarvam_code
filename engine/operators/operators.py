@@ -37,6 +37,8 @@ class TicketPipelineOperators:
 
         self._classification_channel = ClassificationChannel(
             logger=self.logger,
+            db_ref=self._db,
+            http_api_client=self._http_api_client,
         )
         await self._classification_channel.initialize()
 
