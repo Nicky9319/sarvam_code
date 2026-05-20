@@ -2,6 +2,7 @@ import os
 
 from engine.classes.StateStore.state_store import StateStoreSidecar
 from engine.operators.api_routes_handler import APIRoutesHandler
+from engine.operators.classification_channel import ClassificationChannel
 from engine.operators.http_client import HTTPAPIClient
 from engine.operators.db.db import DBDatabase
 
@@ -34,6 +35,11 @@ class TicketPipelineOperators:
         )
         await self._db.initialize()
 
+        self._classification_channel = ClassificationChannel(
+            logger=self.logger,
+        )
+        await self._classification_channel.initialize()
+
         self._api_routes_handler = APIRoutesHandler(
             application=None,
             logger=self.logger,
@@ -43,6 +49,7 @@ class TicketPipelineOperators:
 
     async def cleanup(self) -> None:
         await self._api_routes_handler.cleanup()
+        await self._classification_channel.cleanup()
         await self._db.cleanup()
 
     @property
@@ -52,6 +59,10 @@ class TicketPipelineOperators:
     @property
     def db(self):
         return self._db
+
+    @property
+    def classification_channel(self):
+        return self._classification_channel
 
     @property
     def api_routes_handler(self):
