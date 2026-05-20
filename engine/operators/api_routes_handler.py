@@ -19,7 +19,8 @@ if TYPE_CHECKING:
 
 from engine.models.api_request_models import (
     TicketParseRequest,
-    TicketParseBatchResponse
+    TicketParseBatchResponse,
+    HealthCheckResponse
 )
 
 
@@ -88,7 +89,7 @@ class APIRoutesHandler:
         @app.get("/api/v1/tickets/health")
         @self._limiter.limit("10/minute")
         async def health(request: Request):
-            return {"status": "ok"}
+            return HealthCheckResponse()
 
         await self.logger.debug("Step 1 completed")
 
@@ -97,12 +98,19 @@ class APIRoutesHandler:
         @app.post("/api/v1/tickets/parse", response_model=TicketParseBatchResponse)
         @self._limiter.limit("5/minute")
         async def parse_tickets(request: Request, body: TicketParseRequest):
-            return TicketParseBatchResponse(
-                results=[],
-                total=len(body.tickets),
-                success_count=0,
-                failure_count=0,
-            )
+            try:
+                response : TicketParseBatchResponse = await self.application.process_tickets_request(body)
+                return response
+            except Exception as e:
+                await self.logger.error(
+                    "Error processing parse tickets request",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                return JSONResponse(
+                    status_code=500,
+                    content={"detail": "Internal server error", "error" : f"{str(e)}"},
+                )
 
         await self.logger.debug("Step 2 completed")
 

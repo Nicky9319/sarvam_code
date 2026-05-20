@@ -1,11 +1,10 @@
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, computed_field
 
 
 class TicketParseRequest(BaseModel):
     tickets: list[str] = Field(..., max_length=500)
-    estimate_only: bool = False
 
     @field_validator("tickets")
     @classmethod
@@ -14,20 +13,23 @@ class TicketParseRequest(BaseModel):
             raise ValueError("tickets list cannot exceed 500 items")
         return v
 
-
-class TicketParseResponse(BaseModel):
-    ticket_id: str
-    intent: str
-    priority: str
-    category: str
-    summary: str
-    success: bool = True
-    error: Optional[str] = None
-
-
 class TicketParseBatchResponse(BaseModel):
-    results: list[TicketParseResponse]
-    total: int
-    success_count: int
-    failure_count: int
+    success: list[dict[str , str]]
+    failures: list[str]
 
+    @computed_field 
+    def total(self) -> int:
+        return len(self.success) + len(self.failures)
+    
+    @computed_field
+    def success_count(self) -> int:
+        return len(self.success)
+    
+    @computed_field
+    def failure_count(self) -> int:
+        return len(self.failures)
+
+
+
+class HealthCheckResponse(BaseModel):
+    status: str = "ok" 

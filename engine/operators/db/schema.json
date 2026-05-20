@@ -1,0 +1,145 @@
+{
+  "database": "ticket_pipeline",
+  "collections": [
+    {
+      "name": "requests",
+      "validator": {
+        "$jsonSchema": {
+          "bsonType": "object",
+          "title": "requests",
+          "required": [
+            "request_id",
+            "state",
+            "createdAt",
+            "updatedAt"
+          ],
+          "properties": {
+            "request_id": {
+              "bsonType": "string",
+              "description": "unique request identifier, UUID4, auto-generated"
+            },
+            "response_summary": {
+              "bsonType": ["string", "null"],
+              "description": "optional response summary"
+            },
+            "state": {
+              "bsonType": "string",
+              "enum": ["classification", "summarization", "completed"],
+              "description": "request state: classification, summarization, or completed"
+            },
+            "createdAt": {
+              "bsonType": "date",
+              "description": "timestamp when request was created"
+            },
+            "updatedAt": {
+              "bsonType": "date",
+              "description": "timestamp when request was last updated"
+            }
+          }
+        }
+      },
+      "validationLevel": "strict",
+      "validationAction": "error"
+    },
+    {
+      "name": "batches",
+      "validator": {
+        "$jsonSchema": {
+          "bsonType": "object",
+          "title": "batches",
+          "required": [
+            "batch_number",
+            "request_id",
+            "batch_state",
+            "createdAt",
+            "updatedAt"
+          ],
+          "properties": {
+            "batch_number": {
+              "bsonType": "int",
+              "description": "auto-incremented batch number"
+            },
+            "request_id": {
+              "bsonType": "string",
+              "description": "reference to parent request, UUID4"
+            },
+            "batch_summary": {
+              "bsonType": ["string", "null"],
+              "description": "optional batch summary"
+            },
+            "batch_state": {
+              "bsonType": "string",
+              "enum": ["queued", "processing", "processed"],
+              "description": "batch state: queued, processing, or processed"
+            },
+            "createdAt": {
+              "bsonType": "date",
+              "description": "timestamp when batch was created"
+            },
+            "updatedAt": {
+              "bsonType": "date",
+              "description": "timestamp when batch was last updated"
+            }
+          }
+        }
+      },
+      "validationLevel": "strict",
+      "validationAction": "error"
+    },
+    {
+      "name": "tickets",
+      "validator": {
+        "$jsonSchema": {
+          "bsonType": "object",
+          "title": "tickets",
+          "required": [
+            "ticket_id",
+            "request_id",
+            "content",
+            "state",
+            "batch_number",
+            "createdAt",
+            "updatedAt"
+          ],
+          "properties": {
+            "ticket_id": {
+              "bsonType": "string",
+              "description": "unique ticket identifier, UUID4, auto-generated"
+            },
+            "request_id": {
+              "bsonType": "string",
+              "description": "reference to parent request, UUID4"
+            },
+            "content": {
+              "bsonType": "string",
+              "description": "ticket content"
+            },
+            "state": {
+              "bsonType": "string",
+              "enum": ["completed", "queued", "failed"],
+              "description": "ticket state: completed, queued, or failed"
+            },
+            "batch_number": {
+              "bsonType": "int",
+              "description": "batch number this ticket belongs to"
+            },
+            "response": {
+              "bsonType": ["string", "null"],
+              "description": "optional response content"
+            },
+            "createdAt": {
+              "bsonType": "date",
+              "description": "timestamp when ticket was created"
+            },
+            "updatedAt": {
+              "bsonType": "date",
+              "description": "timestamp when ticket was last updated"
+            }
+          }
+        }
+      },
+      "validationLevel": "strict",
+      "validationAction": "error"
+    }
+  ]
+}

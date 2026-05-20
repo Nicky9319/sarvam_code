@@ -30,10 +30,9 @@ class TicketPipelineOperators:
         self._db = DBDatabase(
             host=os.getenv("MONGODB_HOST", "localhost"),
             port=int(os.getenv("MONGODB_PORT", "27017")),
-            database=os.getenv("MONGODB_DATABASE", "ticket_pipeline"),
             logger=self.logger,
         )
-        self._db.initialize()
+        await self._db.initialize()
 
         self._api_routes_handler = APIRoutesHandler(
             application=None,
