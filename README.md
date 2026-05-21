@@ -143,4 +143,5 @@ For larger payloads, use `-d @tests/payloads/<file>.json` instead of inline JSON
 
 - [Architecture](architecture.md) - System architecture, pipeline diagrams, and tunable parameters
 - [Benchmark](benchmark.md) - Performance benchmarks and tuning results
+- [Future Improvements](future_improvements.md) - Planned enhancements and features
 - [Parse request flow](docs/PARSE_REQUEST_FLOW.md)
