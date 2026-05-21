@@ -15,6 +15,22 @@ The ticket pipeline is a two-stage async processing system that classifies suppo
 - **5 parallel summarization workers**
 - Two-stage pipeline: classification → summarization
 - Async coordination via `asyncio.Future` and `EventBus`
+- Runs as 4 services via Docker Compose: MongoDB, Prometheus, Grafana, Ticket Pipeline API
+
+---
+
+## Docker Compose Services
+
+The system runs as a containerized stack with 4 services:
+
+| Service | Image | Port | Description |
+|---------|-------|------|-------------|
+| `mongodb` | mongo:7 | 27017 | Document database for requests, batches, tickets, metrics |
+| `prometheus` | prom/prometheus:latest | 9090 | Metrics collection and alerting |
+| `grafana` | grafana/grafana:latest | 3000 | Metrics visualization dashboards |
+| `ticket-pipeline` | (build) | 8000 | FastAPI application server |
+
+See [docker-compose.yml](../docker-compose.yml) for full service configuration.
 
 ---
 
@@ -346,7 +362,8 @@ The following parameters can be adjusted to modify pipeline behavior and perform
 
 ### 7. DBDatabase (`engine/operators/db/db.py`)
 - MongoDB wrapper with schema validation
-- Collections: `requests`, `batches`, `tickets`
+- Collections: `requests`, `batches`, `tickets`, `metrics`
+- See [schema.md](schema.md) for full MongoDB schema documentation
 
 ---
 
