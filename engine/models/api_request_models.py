@@ -14,6 +14,7 @@ class TicketParseRequest(BaseModel):
         return v
 
 class TicketParseSuccessItem(BaseModel):
+    ticket_id: str = Field(description="Stable ticket identifier assigned at ingest (1..N per request)")
     description: str = Field(description="Original ticket text from the parse request")
     classification: str = Field(description="Assigned category from classification")
 

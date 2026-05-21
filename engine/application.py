@@ -67,6 +67,7 @@ class TicketPipelineApplication:
 
         batches = await self.create_batches(request.tickets)
         batch_jobs: list[tuple[int, str]] = []
+        ticket_index = 0
         for batch in batches:
             batch_output = await self.db.add_batch(
                 request_id=request_id,
@@ -80,6 +81,8 @@ class TicketPipelineApplication:
             )
 
             for ticket_content in batch:
+                ticket_index += 1
+                assigned_ticket_id = str(ticket_index)
                 ticket_output = await self.db.add_ticket(
                     request_id=request_id,
                     batch_id=batch_output.batch_id,
@@ -87,10 +90,11 @@ class TicketPipelineApplication:
                     batch_number=batch_number,
                     state="queued",
                     response=None,
-                    ticket_id=None,
+                    ticket_id=assigned_ticket_id,
                 )
                 await self.logger.info(
-                    f"Ticket {ticket_output.ticket_id} added to batch {batch_output.batch_id}"
+                    f"Ticket {ticket_output.ticket_id} added to batch {batch_output.batch_id}",
+                    ticket_id=ticket_output.ticket_id,
                 )
 
         await self.operators.classification_channel.add_batches_jobs_to_queue(batch_jobs)
@@ -116,6 +120,7 @@ class TicketPipelineApplication:
     def _get_success_items(self, tickets_output: GetTickerResponsesOutput) -> list[TicketParseSuccessItem]:
         return [
             TicketParseSuccessItem(
+                ticket_id=ticket.ticket_id,
                 description=ticket.content,
                 classification=ticket.response or "",
             )
