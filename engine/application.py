@@ -1,6 +1,9 @@
+import time
 from typing import Optional
 
+from engine.batching import create_adaptive_batches, estimate_processing_seconds
 from engine.models.api_request_models import (
+    ProcessingEstimate,
     TicketParseBatchResponse,
     TicketParseRequest,
     TicketParseSuccessItem,
@@ -8,9 +11,6 @@ from engine.models.api_request_models import (
 from engine.models.db_models import GetTickerResponsesOutput
 from engine.operators.db.db import DBDatabase
 from engine.operators.operators import TicketPipelineOperators
-
-import time
-
 
 
 class TicketPipelineApplication:
@@ -29,28 +29,30 @@ class TicketPipelineApplication:
     async def initialize(self) -> None:
         self.db: DBDatabase = self.operators._db
 
-    async def create_batches(self, tickets: list[str]) -> list[list[str]]:
-        """Creates batches of up to 10 tickets each."""
-        return [tickets[i : i + 10] for i in range(0, len(tickets), 10)]
+    async def create_batches(self, tickets: list[str]):
+        """Adaptive batches capped at MAX_BATCH_TOKENS (default 1000) estimated input tokens."""
+        return create_adaptive_batches(tickets)
 
     def _to_parse_response(
         self,
         tickets_output: GetTickerResponsesOutput,
         summary: Optional[str] = None,
         duration_seconds: Optional[float] = None,
+        processing_estimate: Optional[ProcessingEstimate] = None,
     ) -> TicketParseBatchResponse:
         return TicketParseBatchResponse(
             success=self._get_success_items(tickets_output),
             failures=self._get_failure_items(tickets_output),
             summary=summary,
             duration_seconds=duration_seconds,
+            processing_estimate=processing_estimate,
         )
 
     async def process_tickets_request(self, request: TicketParseRequest) -> TicketParseBatchResponse:
         """
         Processes incoming ticket requests:
             1. Adds the ticket request to the database
-            2. Splits tickets into batches and adds batches to the DB
+            2. Splits tickets into adaptive batches and adds batches to the DB
             3. Adds tickets to the DB associated with their batch and request
             4. Enqueues each batch for classification
             5. Waits for classification to complete via FutureManager
@@ -59,6 +61,7 @@ class TicketPipelineApplication:
             8. Returns classified tickets with consolidated summary as TicketParseBatchResponse
         """
         start_time = time.time()
+        self.operators.http_api_client.reset_usage_totals()
 
         request_output = await self.db.add_request(
             state="classification",
@@ -69,11 +72,28 @@ class TicketPipelineApplication:
 
         if not request.tickets:
             duration_seconds = time.time() - start_time
-            return TicketParseBatchResponse(success=[], failures=[], summary=None, duration_seconds=duration_seconds)
+            return TicketParseBatchResponse(
+                success=[],
+                failures=[],
+                summary=None,
+                duration_seconds=duration_seconds,
+                processing_estimate=ProcessingEstimate(
+                    estimated_batch_count=0,
+                    estimated_duration_seconds=0.0,
+                ),
+            )
+
+        batches = await self.create_batches(request.tickets)
+        processing_estimate = ProcessingEstimate(
+            estimated_batch_count=len(batches),
+            estimated_duration_seconds=estimate_processing_seconds(
+                len(request.tickets),
+                len(batches),
+            ),
+        )
 
         self.operators.future_manager.register(request_id, future_type="classification")
 
-        batches = await self.create_batches(request.tickets)
         batch_jobs: list[tuple[int, str]] = []
         ticket_index = 0
         for batch in batches:
@@ -81,14 +101,18 @@ class TicketPipelineApplication:
                 request_id=request_id,
                 batch_state="queued",
                 batch_summary=None,
+                ticket_count=batch.ticket_count,
+                estimated_token_count=batch.estimated_token_count,
             )
             batch_number = batch_output.batch_number
             batch_jobs.append((batch_number, batch_output.batch_id))
             await self.logger.info(
-                f"Batch {batch_number} ({batch_output.batch_id}) added for request {request_id}"
+                f"Batch {batch_number} ({batch_output.batch_id}) added for request {request_id}",
+                ticket_count=batch.ticket_count,
+                estimated_token_count=batch.estimated_token_count,
             )
 
-            for ticket_content in batch:
+            for ticket_content in batch.tickets:
                 ticket_index += 1
                 assigned_ticket_id = str(ticket_index)
                 ticket_output = await self.db.add_ticket(
@@ -128,6 +152,7 @@ class TicketPipelineApplication:
         success_count = len([t for t in tickets_output.responses if t.state == "completed"])
         failure_count = len([t for t in tickets_output.responses if t.state != "completed"])
 
+        usage = self.operators.http_api_client.get_usage_totals()
         await self.db.add_metrics(
             request_id=request_id,
             duration_seconds=duration_seconds,
@@ -137,9 +162,17 @@ class TicketPipelineApplication:
             ticket_count=len(tickets_output.responses),
             success_count=success_count,
             failure_count=failure_count,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            total_tokens=usage.total_tokens,
         )
 
-        return self._to_parse_response(tickets_output, summary=summary, duration_seconds=duration_seconds)
+        return self._to_parse_response(
+            tickets_output,
+            summary=summary,
+            duration_seconds=duration_seconds,
+            processing_estimate=processing_estimate,
+        )
 
     def _get_success_items(self, tickets_output: GetTickerResponsesOutput) -> list[TicketParseSuccessItem]:
         return [

@@ -263,7 +263,8 @@ class ClassificationChannel:
         self, request: ClassificationRequestMessageInputModel
     ) -> str:
         sarvam_request = self._build_sarvam_request(request)
-        return await self.http_api_client.send_request_to_sarvam(sarvam_request)
+        result = await self.http_api_client.send_request_to_sarvam(sarvam_request)
+        return result.content
 
     async def cleanup(self) -> None:
         for task in self._worker_tasks:

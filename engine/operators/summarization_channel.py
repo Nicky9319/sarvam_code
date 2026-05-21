@@ -202,7 +202,8 @@ class SummarizationChannel:
     async def invoke_sarvam_for_summarization(self, batch_summaries: list[dict]) -> str:
         """Call Sarvam API to generate consolidated summary."""
         sarvam_request = self._build_sarvam_request(batch_summaries)
-        return await self.http_api_client.send_request_to_sarvam(sarvam_request)
+        result = await self.http_api_client.send_request_to_sarvam(sarvam_request)
+        return result.content
 
     async def cleanup(self) -> None:
         """Cancel and await all worker tasks."""

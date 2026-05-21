@@ -13,6 +13,13 @@ class TicketParseRequest(BaseModel):
             raise ValueError("tickets list cannot exceed 500 items")
         return v
 
+class ProcessingEstimate(BaseModel):
+    estimated_batch_count: int = Field(description="Number of adaptive batches formed for this request")
+    estimated_duration_seconds: float = Field(
+        description="Estimated wall-clock seconds from Tier 1 baseline (~11 tickets/s) + summarization overhead"
+    )
+
+
 class TicketParseSuccessItem(BaseModel):
     ticket_id: str = Field(description="Stable ticket identifier assigned at ingest (1..N per request)")
     description: str = Field(description="Original ticket text from the parse request")
@@ -31,6 +38,10 @@ class TicketParseBatchResponse(BaseModel):
     duration_seconds: Optional[float] = Field(
         default=None,
         description="Time in seconds taken to process the response"
+    )
+    processing_estimate: Optional[ProcessingEstimate] = Field(
+        default=None,
+        description="Pre-flight estimate computed before async worker processing begins",
     )
 
     @computed_field

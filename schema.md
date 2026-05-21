@@ -30,7 +30,7 @@ Stores incoming ticket parse requests.
 
 ### batches
 
-Groups of tickets (max 25 per batch) processed together.
+Adaptive groups of tickets processed together (≤ `MAX_BATCH_TOKENS` estimated input tokens per batch, default 1000). Token estimate: **1 token = 1 character** per ticket text (see README.md).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -39,6 +39,8 @@ Groups of tickets (max 25 per batch) processed together.
 | `request_id` | string (UUID4) | Yes | Reference to parent request |
 | `batch_state` | string (enum) | Yes | Batch state: `queued`, `processing`, `processed` |
 | `batch_summary` | string or null | No | Summary from classification for this batch |
+| `ticket_count` | int or null | No | Number of tickets in this adaptive batch |
+| `estimated_token_count` | int or null | No | Sum of estimated input tokens for tickets in batch |
 | `createdAt` | date | Yes | Timestamp when batch was created |
 | `updatedAt` | date | Yes | Timestamp when batch was last updated |
 
@@ -72,6 +74,9 @@ Performance metrics recorded after each request completes.
 | `ticket_count` | int | Yes | Number of tickets in the request |
 | `success_count` | int | Yes | Number of successfully classified tickets |
 | `failure_count` | int | Yes | Number of failed tickets |
+| `prompt_tokens` | int or null | No | Total Sarvam prompt tokens for the request |
+| `completion_tokens` | int or null | No | Total Sarvam completion tokens for the request |
+| `total_tokens` | int or null | No | Total Sarvam tokens for the request |
 | `createdAt` | date | Yes | Timestamp when metrics were recorded |
 
 ---

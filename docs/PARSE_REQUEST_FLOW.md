@@ -42,7 +42,7 @@ sequenceDiagram
     App->>FM: register(request_id, future_type="classification")
     Note over FM: Creates classification Future
 
-    App->>App: create_batches(tickets, batch_size=25)
+    App->>App: create_adaptive_batches(tickets, max_batch_tokens=1000)
 
     loop For each batch
         App->>DB: add_batch(request_id, batch_state="queued")
@@ -620,6 +620,6 @@ engine/
 | `MONGO_PORT` | `27017` | MongoDB port |
 | `CLASSIFICATION_WORKER_COUNT` | `10` | Number of classification workers |
 | `SUMMARIZATION_WORKER_COUNT` | `3` | Number of summarization workers |
-| `BATCH_SIZE` | `25` | Max tickets per batch |
+| `MAX_BATCH_TOKENS` | `1000` | Max estimated input tokens per adaptive batch |
 | `RATE_LIMIT` | `5/minute` | API rate limit |
 | `FUTURE_TIMEOUT` | `2000s` | Max wait time for any stage |

@@ -4,21 +4,9 @@ This document outlines planned improvements and enhancements for the Ticket Pipe
 
 ---
 
-## 1. Token-Based Batching
+## 1. Token-Based Batching — Implemented
 
-**Current State:** Batches are fixed at 25 tickets per batch regardless of token count.
-
-**Improvement:** Implement token-based batching that groups tickets by total token count rather than ticket count. This would:
-- Optimize API usage by packing more tokens per request
-- Better utilize the `max_tokens` budget (currently 2000 for classification, 1000 for summarization)
-- Reduce total API calls for the same number of tickets
-
-**Why:** The Sarvam free plan has token limits, not ticket limits. Batching by token count would be more efficient.
-
-**Implementation Notes:**
-- Need to estimate token count per ticket before classification
-- Track cumulative token count when adding tickets to a batch
-- Stop adding tickets when `estimated_tokens + current_tokens > max_tokens`
+**Status:** Adaptive batching in [`engine/batching.py`](engine/batching.py) greedily packs tickets while estimated input tokens per batch ≤ `MAX_BATCH_TOKENS` (default **1000**). Each MongoDB batch stores `ticket_count` and `estimated_token_count`. Token estimate uses **1 token = 1 character** (documented in README.md).
 
 ---
 

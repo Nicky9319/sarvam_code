@@ -72,6 +72,14 @@
               "bsonType": ["string", "null"],
               "description": "optional batch summary"
             },
+            "ticket_count": {
+              "bsonType": ["int", "null"],
+              "description": "number of tickets in this adaptive batch"
+            },
+            "estimated_token_count": {
+              "bsonType": ["int", "null"],
+              "description": "estimated input tokens for tickets in this batch"
+            },
             "batch_state": {
               "bsonType": "string",
               "enum": ["queued", "processing", "processed"],
@@ -193,6 +201,18 @@
             "failure_count": {
               "bsonType": "int",
               "description": "number of failed tickets"
+            },
+            "prompt_tokens": {
+              "bsonType": ["int", "null"],
+              "description": "total prompt tokens from Sarvam API for this request"
+            },
+            "completion_tokens": {
+              "bsonType": ["int", "null"],
+              "description": "total completion tokens from Sarvam API for this request"
+            },
+            "total_tokens": {
+              "bsonType": ["int", "null"],
+              "description": "total tokens from Sarvam API for this request"
             },
             "createdAt": {
               "bsonType": "date",

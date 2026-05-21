@@ -398,6 +398,8 @@ class DBDatabase:
         request_id: str,
         batch_state: str = "queued",
         batch_summary: Optional[str] = None,
+        ticket_count: Optional[int] = None,
+        estimated_token_count: Optional[int] = None,
     ) -> AddBatchOutput:
         """
         Add a new batch record.
@@ -446,6 +448,8 @@ class DBDatabase:
                 "request_id": request_id,
                 "batch_state": batch_state,
                 "batch_summary": batch_summary,
+                "ticket_count": ticket_count,
+                "estimated_token_count": estimated_token_count,
                 "createdAt": now,
                 "updatedAt": now,
             }
@@ -1113,6 +1117,9 @@ class DBDatabase:
         ticket_count: int,
         success_count: int,
         failure_count: int,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        total_tokens: int = 0,
     ) -> None:
         """
         Add a metrics record for a completed request.
@@ -1138,6 +1145,9 @@ class DBDatabase:
                 "ticket_count": ticket_count,
                 "success_count": success_count,
                 "failure_count": failure_count,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
                 "createdAt": now,
             }
 

@@ -22,6 +22,8 @@ class BatchRecord(BaseModel):
     request_id: str
     batch_state: Literal["queued", "processing", "processed"]
     batch_summary: Optional[str] = None
+    ticket_count: Optional[int] = None
+    estimated_token_count: Optional[int] = None
     createdAt: datetime
     updatedAt: datetime
 

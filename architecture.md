@@ -10,7 +10,8 @@ The ticket pipeline is a two-stage async processing system that classifies suppo
 
 **Key Characteristics:**
 - Rate limited: 5 requests/minute per client
-- Batches tickets into groups of **25** for efficient API calls
+- **Adaptive batching:** packs tickets so estimated input tokens per batch ≤ **1000** (`MAX_BATCH_TOKENS`); stores `ticket_count` and `estimated_token_count` on each batch
+- Pre-flight **`processing_estimate`** (~**11 tickets/s** baseline from real API benchmarks)
 - **10 parallel classification workers**
 - **5 parallel summarization workers**
 - Two-stage pipeline: classification → summarization
@@ -303,7 +304,8 @@ The following parameters can be adjusted to modify pipeline behavior and perform
 
 | Parameter | Default | Env Variable | Description |
 |-----------|---------|--------------|-------------|
-| `BATCH_SIZE` | `25` | — | Max tickets per batch sent to Sarvam API |
+| `MAX_BATCH_TOKENS` | `1000` | `MAX_BATCH_TOKENS` | Max estimated input tokens per classification batch |
+| `SARVAM_HTTP_TIMEOUT` | `120s` | `SARVAM_HTTP_TIMEOUT` | HTTP timeout for Sarvam OpenAI client |
 | `CLASSIFICATION_WORKER_COUNT` | `10` | `CLASSIFICATION_WORKER_COUNT` | Number of parallel classification workers |
 | `SUMMARIZATION_WORKER_COUNT` | `5` | `SUMMARIZATION_WORKER_COUNT` | Number of parallel summarization workers |
 | `API_RATE_LIMIT` | `5/minute` | — | Rate limit on parse endpoint per client |
@@ -321,8 +323,8 @@ The following parameters can be adjusted to modify pipeline behavior and perform
 |-----------------|----------------|
 | Increase `CLASSIFICATION_WORKER_COUNT` | Higher parallelism for classification, better throughput |
 | Increase `SUMMARIZATION_WORKER_COUNT` | Higher parallelism for summarization stage |
-| Increase `BATCH_SIZE` | Fewer API calls, higher per-call latency, lower overhead |
-| Decrease `BATCH_SIZE` | More API calls, lower per-call latency, higher overhead |
+| Increase `MAX_BATCH_TOKENS` | Fewer batches/API calls, larger per-call payload |
+| Decrease `MAX_BATCH_TOKENS` | More batches/API calls, smaller per-call payload |
 | Increase `FUTURE_TIMEOUT` | More tolerant of slow API responses, risk of hanging longer |
 | Increase `SARVAM_RETRY_ATTEMPTS` | Better resilience to transient failures, longer max latency |
 

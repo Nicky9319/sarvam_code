@@ -94,6 +94,11 @@ Record your findings in [benchmark.md](benchmark.md):
 
 ---
 
+## Benchmark tiers
+
+- **Tier 1** ([benchmark.md](benchmark.md)): single-request, real Sarvam API timings (1/25/50/200/500 tickets) — rough speed baseline (~11 tickets/s planning constant).
+- **Tier 2**: concurrent load via `tests/benchmarks/run_load_benchmark.py` — whole-server behavior under parallel clients.
+
 ## Related Documentation
 
 - [architecture.md](architecture.md) — System architecture and tunable parameters
