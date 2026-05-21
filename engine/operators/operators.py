@@ -3,6 +3,7 @@ import os
 from engine.classes.StateStore.state_store import StateStoreSidecar
 from engine.operators.api_routes_handler import APIRoutesHandler
 from engine.operators.classification_channel import ClassificationChannel
+from engine.operators.future_manager import FutureManager
 from engine.operators.http_client import HTTPAPIClient
 from engine.operators.db.db import DBDatabase
 
@@ -11,11 +12,13 @@ class TicketPipelineOperators:
     def __init__(
         self,
         logger,
+        event_bus,
         state_store_sidecar: StateStoreSidecar = None,
-        sarvam_base_url: str = "https://api.sarvam.ai",
+        sarvam_base_url: str = "https://api.sarvam.ai/v1",
         sarvam_api_key: str = "",
     ) -> None:
         self.logger = logger
+        self._event_bus = event_bus
         self.state_store_sidecar = state_store_sidecar
         self.sarvam_base_url = sarvam_base_url
         self.sarvam_api_key = sarvam_api_key
@@ -26,12 +29,13 @@ class TicketPipelineOperators:
             sarvam_api_key=self.sarvam_api_key,
             logger=self.logger,
         )
-        await self._http_api_client.intialize_client()
+        await self._http_api_client.initialize_client()
 
         self._db = DBDatabase(
             host=os.getenv("MONGODB_HOST", "localhost"),
             port=int(os.getenv("MONGODB_PORT", "27017")),
             logger=self.logger,
+            event_bus=self._event_bus,
         )
         await self._db.initialize()
 
@@ -41,6 +45,12 @@ class TicketPipelineOperators:
             http_api_client=self._http_api_client,
         )
         await self._classification_channel.initialize()
+
+        self._future_manager = FutureManager(
+            event_bus=self._event_bus,
+            logger=self.logger,
+        )
+        await self._future_manager.initialize()
 
         self._api_routes_handler = APIRoutesHandler(
             application=None,
@@ -52,6 +62,8 @@ class TicketPipelineOperators:
     async def cleanup(self) -> None:
         await self._api_routes_handler.cleanup()
         await self._classification_channel.cleanup()
+        await self._future_manager.cleanup()
+        await self._http_api_client.cleanup()
         await self._db.cleanup()
 
     @property
@@ -69,3 +81,11 @@ class TicketPipelineOperators:
     @property
     def api_routes_handler(self):
         return self._api_routes_handler
+
+    @property
+    def event_bus(self):
+        return self._event_bus
+
+    @property
+    def future_manager(self):
+        return self._future_manager

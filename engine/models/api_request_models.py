@@ -13,9 +13,16 @@ class TicketParseRequest(BaseModel):
             raise ValueError("tickets list cannot exceed 500 items")
         return v
 
+class TicketParseSuccessItem(BaseModel):
+    description: str = Field(description="Original ticket text from the parse request")
+    classification: str = Field(description="Assigned category from classification")
+
+
 class TicketParseBatchResponse(BaseModel):
-    success: list[dict[str , str]]
-    failures: list[str]
+    success: list[TicketParseSuccessItem]
+    failures: list[str] = Field(
+        description="Original ticket descriptions that failed classification"
+    )
 
     @computed_field 
     def total(self) -> int:

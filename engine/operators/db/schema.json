@@ -48,6 +48,7 @@
           "bsonType": "object",
           "title": "batches",
           "required": [
+            "batch_id",
             "batch_number",
             "request_id",
             "batch_state",
@@ -55,6 +56,10 @@
             "updatedAt"
           ],
           "properties": {
+            "batch_id": {
+              "bsonType": "string",
+              "description": "unique batch identifier, UUID4, auto-generated"
+            },
             "batch_number": {
               "bsonType": "int",
               "description": "auto-incremented batch number"
@@ -95,6 +100,7 @@
           "required": [
             "ticket_id",
             "request_id",
+            "batch_id",
             "content",
             "state",
             "batch_number",
@@ -109,6 +115,10 @@
             "request_id": {
               "bsonType": "string",
               "description": "reference to parent request, UUID4"
+            },
+            "batch_id": {
+              "bsonType": "string",
+              "description": "reference to parent batch, UUID4"
             },
             "content": {
               "bsonType": "string",

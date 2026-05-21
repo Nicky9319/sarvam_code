@@ -12,7 +12,7 @@ from engine.orchestrator import TicketPipeline
 async def main():
     pipeline = TicketPipeline(
         sarvam_api_key=os.getenv("SARVAM_API_KEY", ""),
-        sarvam_base_url=os.getenv("SARVAM_BASE_URL", "https://api.sarvam.ai"),
+        sarvam_base_url=os.getenv("SARVAM_BASE_URL", "https://api.sarvam.ai/v1"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
     )
     await pipeline.initialize()

@@ -5,6 +5,11 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
 from pymongo import MongoClient
+from engine.event_bus import (
+    CLASSIFICATION_ALL_BATCHES_COMPLETED_EVENT,
+    ClassificationAllBatchesCompletedPayload,
+    EventBus,
+)
 from engine.models.db_models import (
     AddBatchOutput,
     AddRequestOutput,
@@ -15,6 +20,8 @@ from engine.models.db_models import (
     GetTickerResponsesOutput,
     TicketRecord,
     TicketResponseOutput,
+    UpdateBatchInput,
+    UpdateBatchOutput,
 )
 from pymongo.database import Database
 from pymongo.collection import Collection
@@ -34,7 +41,12 @@ class DBDatabase:
 
         request_output = await db.add_request()
         batch_output = await db.add_batch(request_output.request_id)
-        ticket_output = await db.add_ticket(request_output.request_id, "ticket content", batch_output.batch_number)
+        ticket_output = await db.add_ticket(
+            request_output.request_id,
+            batch_output.batch_id,
+            "ticket content",
+            batch_output.batch_number,
+        )
 
         completed = await db.get_all_batches_completed(request_output.request_id)
         responses = await db.get_ticker_responses(request_output.request_id)
@@ -47,10 +59,12 @@ class DBDatabase:
         host: str,
         port: int,
         logger: LogSidecar,
+        event_bus: Optional[EventBus] = None,
     ) -> None:
         self._host = host
         self._port = port
         self._logger: LogSidecar = logger
+        self._event_bus = event_bus
         self._client: Optional[MongoClient] = None
 
         # Database references (created dynamically)
@@ -412,14 +426,17 @@ class DBDatabase:
                 raise
 
             batch_number = existing + 1
+            batch_id = str(uuid.uuid4())
             await self._logger.debug(
                 "Calculated next batch_number",
                 request_id=request_id,
-                batch_number=batch_number
+                batch_number=batch_number,
+                batch_id=batch_id,
             )
 
             now = self._now()
             doc = {
+                "batch_id": batch_id,
                 "batch_number": batch_number,
                 "request_id": request_id,
                 "batch_state": batch_state,
@@ -443,10 +460,11 @@ class DBDatabase:
 
             await self._logger.info(
                 "Function ended successfully",
+                batch_id=batch_id,
                 batch_number=batch_number,
                 request_id=request_id
             )
-            return AddBatchOutput(batch_number=batch_number)
+            return AddBatchOutput(batch_id=batch_id, batch_number=batch_number)
 
         except Exception as e:
             await self._logger.error(
@@ -456,52 +474,162 @@ class DBDatabase:
             )
             raise
 
-    async def update_batch(self, request_id: str, batch_number: int, **kwargs) -> None:
+    async def update_batch(self, update: UpdateBatchInput) -> UpdateBatchOutput:
         """
-        Update a batch record.
+        Update a batch and its tickets after classification.
 
         Processing Steps:
-        Step 1: Build update document with updatedAt timestamp
-        Step 2: Update the batch document in collection
+        Step 1: Load batch by batch_id
+        Step 2: Update batch_state and batch_summary
+        Step 3: Update tickets (per-item updates or mark all failed)
+        Step 4: If all batches for the request are processed, emit domain event
         """
         try:
             await self._logger.info(
                 "Function started",
-                request_id=request_id,
-                batch_number=batch_number,
-                fields=list(kwargs.keys())
+                batch_id=update.batch_id,
+                batch_state=update.batch_state,
+                mark_all_tickets_failed=update.mark_all_tickets_failed,
+                ticket_update_count=len(update.ticket_updates or []),
             )
 
-            update = {**kwargs, "updatedAt": self._now()}
-
             try:
-                result = self.batches_collection.update_one(
-                    {"request_id": request_id, "batch_number": batch_number},
-                    {"$set": update}
-                )
-                await self._logger.debug(
-                    "Update completed",
-                    request_id=request_id,
-                    batch_number=batch_number,
-                    matched_count=result.matched_count
-                )
+                batch = self.batches_collection.find_one({"batch_id": update.batch_id})
             except PyMongoError as e:
                 await self._logger.error(
-                    "MongoDB update failed",
-                    request_id=request_id,
-                    batch_number=batch_number,
+                    "MongoDB query failed",
+                    batch_id=update.batch_id,
                     error=str(e),
-                    error_type=type(e).__name__
+                    error_type=type(e).__name__,
                 )
                 raise
 
-            await self._logger.info("Function ended successfully")
+            if not batch:
+                raise ValueError(f"Batch not found for batch_id={update.batch_id}")
+
+            request_id = batch["request_id"]
+            now = self._now()
+
+            batch_fields: Dict[str, Any] = {
+                "batch_state": update.batch_state,
+                "updatedAt": now,
+            }
+            if update.batch_summary is not None:
+                batch_fields["batch_summary"] = update.batch_summary
+
+            try:
+                batch_result = self.batches_collection.update_one(
+                    {"batch_id": update.batch_id},
+                    {"$set": batch_fields},
+                )
+                await self._logger.debug(
+                    "Batch update completed",
+                    batch_id=update.batch_id,
+                    matched_count=batch_result.matched_count,
+                )
+            except PyMongoError as e:
+                await self._logger.error(
+                    "MongoDB batch update failed",
+                    batch_id=update.batch_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                raise
+
+            if update.mark_all_tickets_failed:
+                try:
+                    ticket_result = self.tickets_collection.update_many(
+                        {"batch_id": update.batch_id},
+                        {"$set": {"state": "failed", "updatedAt": now}},
+                    )
+                    await self._logger.debug(
+                        "Marked all tickets failed",
+                        batch_id=update.batch_id,
+                        modified_count=ticket_result.modified_count,
+                    )
+                except PyMongoError as e:
+                    await self._logger.error(
+                        "MongoDB ticket bulk update failed",
+                        batch_id=update.batch_id,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+                    raise
+            elif update.ticket_updates:
+                for ticket_update in update.ticket_updates:
+                    ticket_fields: Dict[str, Any] = {
+                        "state": ticket_update.state,
+                        "updatedAt": now,
+                    }
+                    if ticket_update.response is not None:
+                        ticket_fields["response"] = ticket_update.response
+
+                    try:
+                        self.tickets_collection.update_one(
+                            {
+                                "batch_id": update.batch_id,
+                                "ticket_id": ticket_update.ticket_id,
+                            },
+                            {"$set": ticket_fields},
+                        )
+                    except PyMongoError as e:
+                        await self._logger.error(
+                            "MongoDB ticket update failed",
+                            batch_id=update.batch_id,
+                            ticket_id=ticket_update.ticket_id,
+                            error=str(e),
+                            error_type=type(e).__name__,
+                        )
+                        raise
+
+            batches_completed = await self.get_all_batches_completed(request_id)
+            event_emitted = False
+
+            if batches_completed.completed and self._event_bus is not None:
+                batch_count = self.batches_collection.count_documents(
+                    {"request_id": request_id}
+                )
+                await self._event_bus.emit(
+                    CLASSIFICATION_ALL_BATCHES_COMPLETED_EVENT,
+                    data=ClassificationAllBatchesCompletedPayload(
+                        request_id=request_id,
+                        batch_count=batch_count,
+                    ).model_dump(),
+                )
+                event_emitted = True
+                await self._logger.info(
+                    "Emitted classification_all_batches_completed",
+                    request_id=request_id,
+                    batch_count=batch_count,
+                )
+            else:
+                await self._logger.debug(
+                    "Not all batches completed yet, skipping event emit",
+                    request_id=request_id,
+                    all_batches_completed=batches_completed.completed,
+                )
+                
+
+            output = UpdateBatchOutput(
+                batch_id=update.batch_id,
+                request_id=request_id,
+                all_batches_completed=batches_completed.completed,
+                event_emitted=event_emitted,
+            )
+
+            await self._logger.info(
+                "Function ended successfully",
+                batch_id=update.batch_id,
+                all_batches_completed=batches_completed.completed,
+                event_emitted=event_emitted,
+            )
+            return output
 
         except Exception as e:
             await self._logger.error(
                 "Function ended with exception",
                 error=str(e),
-                error_type=type(e).__name__
+                error_type=type(e).__name__,
             )
             raise
 
@@ -509,6 +637,7 @@ class DBDatabase:
     async def add_ticket(
         self,
         request_id: str,
+        batch_id: str,
         content: str,
         batch_number: int,
         state: str = "queued",
@@ -543,6 +672,7 @@ class DBDatabase:
             doc = {
                 "ticket_id": ticket_id,
                 "request_id": request_id,
+                "batch_id": batch_id,
                 "content": content,
                 "state": state,
                 "batch_number": batch_number,
@@ -680,7 +810,7 @@ class DBDatabase:
             )
             raise
 
-    async def get_ticker_responses(self, request_id: str) -> GetTickerResponsesOutput:
+    async def get_ticket_responses(self, request_id: str) -> GetTickerResponsesOutput:
         """
         Get all tickets for a request with their state and content.
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RequestRecord(BaseModel):
@@ -17,6 +17,7 @@ class RequestRecord(BaseModel):
 class BatchRecord(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    batch_id: str
     batch_number: int
     request_id: str
     batch_state: Literal["queued", "processing", "processed"]
@@ -30,6 +31,7 @@ class TicketRecord(BaseModel):
 
     ticket_id: str
     request_id: str
+    batch_id: str
     content: str
     state: Literal["completed", "queued", "failed"]
     batch_number: int
@@ -43,11 +45,36 @@ class AddRequestOutput(BaseModel):
 
 
 class AddBatchOutput(BaseModel):
+    batch_id: str
     batch_number: int
 
 
 class AddTicketOutput(BaseModel):
     ticket_id: str
+
+
+class TicketUpdateItem(BaseModel):
+    ticket_id: str
+    state: Literal["completed", "failed"]
+    response: Optional[str] = None
+
+
+class UpdateBatchInput(BaseModel):
+    batch_id: str
+    batch_state: Literal["queued", "processing", "processed"]
+    batch_summary: Optional[str] = None
+    ticket_updates: Optional[List[TicketUpdateItem]] = None
+    mark_all_tickets_failed: bool = Field(
+        default=False,
+        description="When true, mark every ticket in the batch as failed",
+    )
+
+
+class UpdateBatchOutput(BaseModel):
+    batch_id: str
+    request_id: str
+    all_batches_completed: bool
+    event_emitted: bool = False
 
 
 class GetAllBatchesCompletedOutput(BaseModel):
