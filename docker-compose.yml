@@ -51,6 +51,7 @@ services:
         required: true
     environment:
       - PYTHONUNBUFFERED=1
+      - MONGODB_HOST=mongodb
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/tickets/health')"]
       interval: 30s
