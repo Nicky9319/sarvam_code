@@ -104,12 +104,12 @@ class ClassificationChannel:
 
     # Queue Operations
 
-    async def add_batch_job_to_queue(self, batch_id: str) -> None:
-        self._classification_queue.put_nowait((0, batch_id))
+    async def add_batch_job_to_queue(self, batch_id: str, batch_number: int = 0) -> None:
+        self._classification_queue.put_nowait((batch_number, batch_id))
 
-    async def add_batches_jobs_to_queue(self, batch_ids: list[str]) -> None:
-        for batch_id in batch_ids:
-            self._classification_queue.put_nowait((0, batch_id))
+    async def add_batches_jobs_to_queue(self, batch_jobs: list[tuple[int, str]]) -> None:
+        for batch_number, batch_id in batch_jobs:
+            self._classification_queue.put_nowait((batch_number, batch_id))
 
 
     # Helper Functions

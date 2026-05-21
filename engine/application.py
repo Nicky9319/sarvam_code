@@ -27,25 +27,19 @@ class TicketPipelineApplication:
         self.db: DBDatabase = self.operators._db
 
     async def create_batches(self, tickets: list[str]) -> list[list[str]]:
-        """Creates batches of up to 25 tickets each."""
-        return [tickets[i : i + 25] for i in range(0, len(tickets), 25)]
+        """Creates batches of up to 10 tickets each."""
+        return [tickets[i : i + 10] for i in range(0, len(tickets), 10)]
 
-    def _to_parse_response(self, tickets_output: GetTickerResponsesOutput) -> TicketParseBatchResponse:
-        success: list[TicketParseSuccessItem] = []
-        failures: list[str] = []
-
-        for ticket in tickets_output.responses:
-            if ticket.state == "completed":
-                success.append(
-                    TicketParseSuccessItem(
-                        description=ticket.content,
-                        classification=ticket.response or "",
-                    )
-                )
-            else:
-                failures.append(ticket.content)
-
-        return TicketParseBatchResponse(success=success, failures=failures)
+    def _to_parse_response(
+        self,
+        tickets_output: GetTickerResponsesOutput,
+        summary: Optional[str] = None,
+    ) -> TicketParseBatchResponse:
+        return TicketParseBatchResponse(
+            success=self._get_success_items(tickets_output),
+            failures=self._get_failure_items(tickets_output),
+            summary=summary,
+        )
 
     async def process_tickets_request(self, request: TicketParseRequest) -> TicketParseBatchResponse:
         """
@@ -54,8 +48,10 @@ class TicketPipelineApplication:
             2. Splits tickets into batches and adds batches to the DB
             3. Adds tickets to the DB associated with their batch and request
             4. Enqueues each batch for classification
-            5. Waits for all batches to complete via FutureManager
-            6. Returns classified tickets as TicketParseBatchResponse
+            5. Waits for classification to complete via FutureManager
+            6. Enqueues request for summarization
+            7. Waits for summarization to complete via FutureManager
+            8. Returns classified tickets with consolidated summary as TicketParseBatchResponse
         """
         request_output = await self.db.add_request(
             state="classification",
@@ -65,12 +61,12 @@ class TicketPipelineApplication:
         await self.logger.info(f"Request added to database with id: {request_id}")
 
         if not request.tickets:
-            return TicketParseBatchResponse(success=[], failures=[])
+            return TicketParseBatchResponse(success=[], failures=[], summary=None)
 
-        self.operators.future_manager.register(request_id)
+        self.operators.future_manager.register(request_id, future_type="classification")
 
         batches = await self.create_batches(request.tickets)
-        batch_ids: list[str] = []
+        batch_jobs: list[tuple[int, str]] = []
         for batch in batches:
             batch_output = await self.db.add_batch(
                 request_id=request_id,
@@ -78,7 +74,7 @@ class TicketPipelineApplication:
                 batch_summary=None,
             )
             batch_number = batch_output.batch_number
-            batch_ids.append(batch_output.batch_id)
+            batch_jobs.append((batch_number, batch_output.batch_id))
             await self.logger.info(
                 f"Batch {batch_number} ({batch_output.batch_id}) added for request {request_id}"
             )
@@ -97,12 +93,39 @@ class TicketPipelineApplication:
                     f"Ticket {ticket_output.ticket_id} added to batch {batch_output.batch_id}"
                 )
 
+        await self.operators.classification_channel.add_batches_jobs_to_queue(batch_jobs)
+        await self.logger.info(f"Enqueued {len(batch_jobs)} batches for classification")
 
-        await self.operators.classification_channel.add_batches_jobs_to_queue(batch_ids)
-        await self.logger.info(f"Enqueued {len(batch_ids)} batches for classification")
-
-        await self.operators.future_manager.wait(request_id)
+        await self.operators.future_manager.wait(request_id, future_type="classification")
         await self.logger.info(f"Classification completed for request {request_id}")
 
+        await self.db.update_request_state(request_id, "summarization")
+        self.operators.future_manager.register(request_id, future_type="summarization")
+        await self.operators.summarization_channel.add_job_to_queue(request_id)
+        await self.logger.info(f"Enqueued request {request_id} for summarization")
+
+        await self.operators.future_manager.wait(request_id, future_type="summarization")
+        await self.logger.info(f"Summarization completed for request {request_id}")
+
         tickets_output = await self.db.get_ticket_responses(request_id)
-        return self._to_parse_response(tickets_output)
+        request_record = await self.db.get_request(request_id)
+        summary = request_record.get("response_summary") if request_record else None
+
+        return self._to_parse_response(tickets_output, summary=summary)
+
+    def _get_success_items(self, tickets_output: GetTickerResponsesOutput) -> list[TicketParseSuccessItem]:
+        return [
+            TicketParseSuccessItem(
+                description=ticket.content,
+                classification=ticket.response or "",
+            )
+            for ticket in tickets_output.responses
+            if ticket.state == "completed"
+        ]
+
+    def _get_failure_items(self, tickets_output: GetTickerResponsesOutput) -> list[str]:
+        return [
+            ticket.content
+            for ticket in tickets_output.responses
+            if ticket.state != "completed"
+        ]

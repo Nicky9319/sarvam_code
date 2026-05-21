@@ -1,0 +1,29 @@
+{
+  "tickets": [
+    "Ticket 20001: The laptop battery drains from 100% to 20% within 30 minutes even when idle.",
+    "Ticket 20002: GPU overheats and the machine shuts down during video calls.",
+    "Ticket 20003: Display flickers on the external monitor after waking from sleep.",
+    "Ticket 20004: The desktop app crashes immediately after launch on Windows 11.",
+    "Ticket 20005: Export to CSV fails with a timeout for datasets over 10k rows.",
+    "Ticket 20006: SSO login loops back to the sign-in page after MFA.",
+    "Ticket 20007: The assistant gives incorrect policy answers for refund eligibility.",
+    "Ticket 20008: Summaries omit key dates mentioned in the ticket thread.",
+    "Ticket 20009: I was charged twice for the same subscription renewal.",
+    "Ticket 20010: Invoice PDF shows the wrong tax region for our EU account.",
+    "Ticket 20011: Need help migrating API keys to the new workspace.",
+    "Ticket 20012: Request documentation for webhook retry behavior.",
+    "Ticket 20013: The laptop battery drains from 100% to 20% within 30 minutes even when idle.",
+    "Ticket 20014: GPU overheats and the machine shuts down during video calls.",
+    "Ticket 20015: Display flickers on the external monitor after waking from sleep.",
+    "Ticket 20016: The desktop app crashes immediately after launch on Windows 11.",
+    "Ticket 20017: Export to CSV fails with a timeout for datasets over 10k rows.",
+    "Ticket 20018: SSO login loops back to the sign-in page after MFA.",
+    "Ticket 20019: The assistant gives incorrect policy answers for refund eligibility.",
+    "Ticket 20020: Summaries omit key dates mentioned in the ticket thread.",
+    "Ticket 20021: I was charged twice for the same subscription renewal.",
+    "Ticket 20022: Invoice PDF shows the wrong tax region for our EU account.",
+    "Ticket 20023: Need help migrating API keys to the new workspace.",
+    "Ticket 20024: Request documentation for webhook retry behavior.",
+    "Ticket 20025: The laptop battery drains from 100% to 20% within 30 minutes even when idle."
+  ]
+}

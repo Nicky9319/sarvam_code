@@ -81,6 +81,11 @@ class GetAllBatchesCompletedOutput(BaseModel):
     completed: bool
 
 
+class BatchSummaryItem(BaseModel):
+    batch_number: int
+    summary: str
+
+
 class TicketResponseOutput(BaseModel):
     ticket_id: str
     content: str

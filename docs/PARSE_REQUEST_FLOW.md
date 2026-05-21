@@ -4,17 +4,19 @@ This document describes the complete flow of a ticket parse request through the 
 
 ## Overview
 
-The parse request flow handles incoming HTTP requests to classify support tickets into categories (hardware_issue, software_issue, model_quality, billing, other). It uses a worker pool pattern with event-driven completion notification.
+The parse request flow handles incoming HTTP requests to classify support tickets into categories (hardware_issue, software_issue, model_quality, billing, other) and generate a consolidated summary. It uses a two-stage worker pool pattern with event-driven completion notification.
 
 **Key Characteristics:**
 - Rate limited: 5 requests/minute per client
 - Batches tickets into groups of 25 for efficient API calls
-- 10 parallel workers process classification requests
+- 10 parallel classification workers
+- 3 parallel summarization workers
+- Two-stage pipeline: classification → summarization
 - Async coordination via asyncio.Future and EventBus
 
 ---
 
-## Sequence Diagram
+## Two-Stage Sequence Diagram
 
 ```mermaid
 sequenceDiagram
@@ -23,10 +25,11 @@ sequenceDiagram
     participant App as TicketPipelineApplication
     participant DB as DBDatabase<br/>(MongoDB)
     participant FM as FutureManager
-    participant Queue as ClassificationChannel<br/>(PriorityQueue)
-    participant Worker1 as ClassificationWorker #1
-    participant Worker2 as ClassificationWorker #2
-    participant WorkerN as ClassificationWorker #N
+    participant ClassQueue as ClassificationChannel<br/>(PriorityQueue)
+    participant ClassWorker1 as ClassificationWorker #1
+    participant ClassWorkerN as ClassificationWorker #N
+    participant SumChannel as SummarizationChannel<br/>(Queue)
+    participant SumWorker1 as SummarizationWorker #1
     participant EB as EventBus
     participant Sarvam as Sarvam API
 
@@ -36,61 +39,80 @@ sequenceDiagram
     APIHandler->>App: process_tickets_request(TicketParseRequest)
     App->>DB: add_request(state="classification")
     DB-->>App: request_id (UUID4)
-    App->>FM: register(request_id)
-    Note over FM: Creates asyncio.Future
+    App->>FM: register(request_id, future_type="classification")
+    Note over FM: Creates classification Future
 
     App->>App: create_batches(tickets, batch_size=25)
 
     loop For each batch
         App->>DB: add_batch(request_id, batch_state="queued")
         DB-->>App: batch_id, batch_number
-
         loop For each ticket in batch
             App->>DB: add_ticket(request_id, batch_id, content)
             DB-->>App: ticket_id
         end
     end
 
-    App->>Queue: add_batches_jobs_to_queue(batch_ids)
-    Note over Queue: Batches added to PriorityQueue
+    App->>ClassQueue: add_batches_jobs_to_queue(batch_ids)
+    Note over ClassQueue: Batches added to PriorityQueue
 
-    App->>FM: wait(request_id, timeout=2000s)
-    Note over App: BLOCKS HERE until future resolved
+    App->>FM: wait(request_id, future_type="classification")
+    Note over App: BLOCKS HERE until classification complete
 
-    par Workers Process in Parallel
-        Worker1->>Queue: get() [priority=batch_number]
-        Worker2->>Queue: get() [priority=batch_number]
-        WorkerN->>Queue: get() [priority=batch_number]
+    par Classification Workers Process in Parallel
+        ClassWorker1->>ClassQueue: get() [priority=batch_number]
+        ClassWorkerN->>ClassQueue: get() [priority=batch_number]
     end
 
-    loop For each worker
-        Worker1->>DB: get_batch_info_and_tickets(batch_id)
-        DB-->>Worker1: batch + tickets
+    loop For each classification worker
+        ClassWorker1->>DB: get_batch_info_and_tickets(batch_id)
+        DB-->>ClassWorker1: batch + tickets
 
-        Worker1->>Worker1: _build_sarvam_request()
-        Worker1->>Sarvam: POST classification request
-        Sarvam-->>Worker1: JSON response (LLM classified)
+        ClassWorker1->>ClassWorker1: _build_sarvam_request()
+        ClassWorker1->>Sarvam: POST classification request
+        Sarvam-->>ClassWorker1: JSON response (LLM classified)
 
-        Worker1->>Worker1: _parse_classification_response()
-        Note over Worker1: Strips thinking blocks
-
-        Worker1->>DB: update_batch(batch_id, state="processed")
+        ClassWorker1->>ClassWorker1: _parse_classification_response()
+        ClassWorker1->>DB: update_batch(batch_id, state="processed", batch_summary)
     end
-
-    Note over DB: Checks if ALL batches complete
 
     DB->>EB: emit(CLASSIFICATION_ALL_BATCHES_COMPLETED_EVENT)
     EB->>FM: _on_classification_all_batches_completed()
     FM-->>FM: future.set_result(request_id)
 
     App-->>App: wait() returns
+    Note over App: Classification complete, now summarization
+
+    App->>FM: register(request_id, future_type="summarization")
+    App->>SumChannel: add_job_to_queue(request_id)
+    Note over SumChannel: Request added to summarization queue
+
+    App->>FM: wait(request_id, future_type="summarization")
+    Note over App: BLOCKS HERE until summarization complete
+
+    SumWorker1->>SumChannel: get() [request_id]
+    SumWorker1->>DB: get_batch_summaries_for_request(request_id)
+    DB-->>SumWorker1: list of batch summaries
+
+    SumWorker1->>SumWorker1: _build_sarvam_request()
+    SumWorker1->>Sarvam: POST summarization request
+    Sarvam-->>SumWorker1: JSON response (consolidated summary)
+
+    SumWorker1->>DB: update_request_summary(request_id, summary)
+    DB->>EB: emit(SUMMARIZATION_ALL_BATCHES_COMPLETED_EVENT)
+    EB->>FM: _on_summarization_all_batches_completed()
+    FM-->>FM: future.set_result(request_id)
+
+    App-->>App: wait() returns
     App->>DB: get_ticket_responses(request_id)
     DB-->>App: ticket responses
+    App->>DB: get_request(request_id)
+    DB-->>App: request with response_summary
 
-    App->>App: _to_parse_response()
+    App->>App: Build TicketParseBatchResponse
     APIHandler-->>Client: TicketParseBatchResponse
 
-    Note over Client: 200 OK<br/>success: [...], failures: [...]
+    Note over Client: 200 OK<br/>success: [...], failures: [...], summary: "..."
 ```
 
 ---
@@ -99,177 +121,96 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-
-    %% =========================
-    %% External Systems
-    %% =========================
-    subgraph External["External Systems"]
+    subgraph External
         Client["HTTP Client"]
         SarvamAPI["Sarvam API<br/>(api.sarvam.ai)"]
     end
 
-    %% =========================
-    %% Main Orchestrator
-    %% =========================
-    subgraph Orchestrator["TicketPipeline Orchestrator"]
+    subgraph Orchestrator["TicketPipeline (orchestrator.py)"]
         direction TB
-
         EventBus["EventBus<br/>(event_bus.py)"]
         Reducers["TicketPipelineReducers<br/>(reducers.py)"]
-        OperatorsLayer["TicketPipelineOperators<br/>(operators.py)"]
+        Operators["TicketPipelineOperators<br/>(operators.py)"]
         Application["TicketPipelineApplication<br/>(application.py)"]
     end
 
-    %% =========================
-    %% Operators Layer
-    %% =========================
-    subgraph Operators["Operators Layer"]
-        direction TB
-
+    subgraph Operators["TicketPipelineOperators"]
         APIRoutes["APIRoutesHandler<br/>(FastAPI + Rate Limiter)"]
-
         HTTPClient["HTTPAPIClient<br/>(Sarvam API Client)"]
-
         DB["DBDatabase<br/>(MongoDB Wrapper)"]
-
         ClassChannel["ClassificationChannel<br/>(10 Workers + Queue)"]
-
-        FutureMgr["FutureManager<br/>(request_id → asyncio.Future)"]
+        SumChannel["SummarizationChannel<br/>(3 Workers + Queue)"]
+        FutureMgr["FutureManager<br/>(request_id → Future)"]
     end
 
-    %% =========================
-    %% Classification Workers
-    %% =========================
-    subgraph ClassificationWorkers["ClassificationChannel Internals"]
-        direction TB
-
-        Queue["asyncio.PriorityQueue"]
-
-        Worker1["ClassificationWorker #1"]
-        Worker2["ClassificationWorker #2"]
-        Worker10["ClassificationWorker #10"]
+    subgraph ClassWorkers["ClassificationChannel"]
+        direction LR
+        CW1["Worker 1"]
+        CW2["Worker 2"]
+        CW10["Worker 10"]
     end
 
-    %% =========================
-    %% MongoDB Collections
-    %% =========================
+    subgraph SumWorkers["SummarizationChannel"]
+        direction LR
+        SW1["Worker 1"]
+        SW2["Worker 2"]
+        SW3["Worker 3"]
+    end
+
     subgraph Database["MongoDB"]
-        direction TB
-
         ReqColl["requests collection"]
         BatchColl["batches collection"]
         TicketColl["tickets collection"]
     end
 
-    %% =========================
-    %% Request Flow
-    %% =========================
     Client -->|"POST /api/v1/tickets/parse"| APIRoutes
-
     APIRoutes --> Application
-
     Application --> DB
     Application --> FutureMgr
     Application --> ClassChannel
-
-    %% =========================
-    %% Queue + Workers
-    %% =========================
-    ClassChannel --> Queue
-
-    Queue --> Worker1
-    Queue --> Worker2
-    Queue --> Worker10
-
-    %% =========================
-    %% Worker → API
-    %% =========================
-    Worker1 --> HTTPClient
-    Worker2 --> HTTPClient
-    Worker10 --> HTTPClient
-
+    Application --> SumChannel
+    ClassChannel --> ClassWorkers
+    ClassWorkers --> HTTPClient
     HTTPClient --> SarvamAPI
-
-    %% =========================
-    %% Database Relations
-    %% =========================
+    SumChannel --> SumWorkers
+    SumWorkers --> HTTPClient
     DB --> ReqColl
     DB --> BatchColl
     DB --> TicketColl
-
-    ClassChannel --> DB
-
-    %% =========================
-    %% Event Flow
-    %% =========================
-    DB --> EventBus
-
-    EventBus --> Reducers
+    ClassWorkers --> DB
+    SumWorkers --> DB
     EventBus --> FutureMgr
-
-    FutureMgr -.->|"future.set_result()"| Application
+    DB --> EventBus
+    FutureMgr -.->|future.set_result()| Application
 ```
 
 ---
 
-## Classification Worker Pool Diagram
+## Processing Pipeline
 
 ```mermaid
 flowchart LR
-    subgraph Input
-        NewBatch["New Batch<br/>from Application"]
-    end
-
-    subgraph Queue["Priority Queue"]
+    subgraph Stage1["Stage 1: Classification"]
         direction TB
-        PQ["asyncio.PriorityQueue"]
-        NotePQ["Lower batch_number<br/>= Higher priority"]
+        Input["Tickets"] --> Batch["Create Batches<br/>(25 tickets/batch)"]
+        Batch --> ClassQueue["Classification Queue"]
+        ClassQueue --> Workers["10 Workers"]
+        Workers --> Sarvam["Sarvam API"]
+        Sarvam --> Update["update_batch()"]
+        Update --> Event1["CLASSIFICATION_ALL_BATCHES_COMPLETED"]
     end
 
-    subgraph Workers["10 Classification Workers"]
-        direction LR
-        W1["Worker 1"]
-        W2["Worker 2"]
-        W3["Worker 3"]
-        W4["Worker 4"]
-        W5["Worker 5"]
-        W6["Worker 6"]
-        W7["Worker 7"]
-        W8["Worker 8"]
-        W9["Worker 9"]
-        W10["Worker 10"]
-    end
-
-    subgraph Processing["Per-Worker Processing"]
+    subgraph Stage2["Stage 2: Summarization"]
         direction TB
-        Fetch["1. get_batch_info_and_tickets()"]
-        Build["2. _build_sarvam_request()"]
-        Call["3. send_request_to_sarvam()"]
-        Parse["4. _parse_classification_response()"]
-        Update["5. update_batch()"]
+        Event1 --> SumQueue["Summarization Queue"]
+        SumQueue --> SumWorkers["3 Workers"]
+        SumWorkers --> GetSummaries["get_batch_summaries()"]
+        GetSummaries --> Sarvam2["Sarvam API"]
+        Sarvam2 --> FinalSummary["update_request_summary()"]
+        FinalSummary --> Event2["SUMMARIZATION_ALL_BATCHES_COMPLETED"]
     end
 
-    subgraph Output["Database Updates"]
-        direction TB
-        BatchState["batch_state: queued → processed"]
-        Tickets["ticket responses updated"]
-        Event["EventBus emit if all complete"]
-    end
-
-    NewBatch -->|"add_batches_jobs_to_queue()"| PQ
-    PQ -->|"get()"| W1
-    PQ -->|"get()"| W2
-    PQ -->|"get()"| W10
-    W1 --> Fetch
-    W2 --> Fetch
-    W10 --> Fetch
-    Fetch --> Build
-    Build --> Call
-    Call --> Parse
-    Parse --> Update
-    Update --> BatchState
-    Update --> Tickets
-    Tickets -->|"if all batches done"| Event
+    Event2 --> Response["TicketParseBatchResponse<br/>(success + failures + summary)"]
 ```
 
 ---
@@ -281,11 +222,11 @@ flowchart LR
 ```mermaid
 stateDiagram-v2
     [*] --> classification : add_request()
-    classification --> [*] : Response sent
+    classification --> summarized : Summarization complete
+    summarized --> [*] : Response sent
 
     note right of classification
         Initial state for all requests.
-        Created in MongoDB requests collection.
     end note
 ```
 
@@ -294,17 +235,15 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> queued : add_batch()
-    queued --> processing : Worker picks up batch
-    processing --> processed : update_batch() with results
+    queued --> processed : update_batch() with results
 
     note right of queued
-        Batches waiting in PriorityQueue.
-        Worker fetches batch_info_and_tickets.
+        Batches waiting in ClassificationChannel PriorityQueue.
     end note
 
     note right of processed
         Classification complete.
-        Tickets updated with responses.
+        batch_summary populated with per-batch summary.
     end note
 ```
 
@@ -328,8 +267,6 @@ stateDiagram-v2
 ```
 
 ### Classification Categories
-
-The system classifies tickets into these categories:
 
 | Category | Description |
 |----------|-------------|
@@ -359,19 +296,6 @@ async def parse_tickets(request: Request, body: TicketParseRequest):
 
 **Rate Limit:** 5 requests per minute per client
 
-**Request Model:** `TicketParseRequest`
-```python
-class TicketParseRequest(BaseModel):
-    tickets: list[TicketInput]  # Max 25 per batch, batches auto-created
-```
-
-**Response Model:** `TicketParseBatchResponse`
-```python
-class TicketParseBatchResponse(BaseModel):
-    success: list[TicketParseSuccessItem]  # Classified tickets
-    failures: list[str]  # Failed ticket descriptions
-```
-
 ---
 
 ### 2. TicketPipelineApplication (`engine/application.py`)
@@ -386,27 +310,41 @@ async def process_tickets_request(self, request: TicketParseRequest) -> TicketPa
     request_output = await self.db.add_request(state="classification", request_id=None)
     request_id = request_output.request_id
 
-    # 2. Register future for this request
-    self.operators.future_manager.register(request_id)
+    # 2. Register future for classification
+    self.operators.future_manager.register(request_id, future_type="classification")
 
-    # 3. Create batches (max 25 tickets each)
+    # 3. Create batches and add to DB
     batches = await self.create_batches(request.tickets)
-
-    # 4. For each batch: create DB records
     for batch in batches:
-        batch_output = await self.db.add_batch(request_id=request_id, ...)
-        for ticket in batch:
+        batch_output = await self.db.add_batch(...)
+        for ticket_content in batch:
             await self.db.add_ticket(...)
 
-    # 5. Enqueue batches for classification
+    # 4. Enqueue batches for classification
     await self.operators.classification_channel.add_batches_jobs_to_queue(batch_ids)
 
-    # 6. Wait for classification to complete
-    await self.operators.future_manager.wait(request_id)
+    # 5. Wait for classification to complete
+    await self.operators.future_manager.wait(request_id, future_type="classification")
 
-    # 7. Get results and return
+    # 6. Register future for summarization
+    self.operators.future_manager.register(request_id, future_type="summarization")
+
+    # 7. Enqueue request for summarization
+    await self.operators.summarization_channel.add_job_to_queue(request_id)
+
+    # 8. Wait for summarization to complete
+    await self.operators.future_manager.wait(request_id, future_type="summarization")
+
+    # 9. Get results and return
     tickets_output = await self.db.get_ticket_responses(request_id)
-    return self._to_parse_response(tickets_output)
+    request_record = await self.db.get_request(request_id)
+    summary = request_record.get("response_summary")
+
+    return TicketParseBatchResponse(
+        success=...,
+        failures=...,
+        summary=summary,
+    )
 ```
 
 ---
@@ -419,7 +357,10 @@ async def process_tickets_request(self, request: TicketParseRequest) -> TicketPa
 ```python
 async def initialize(self):
     self._classification_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
-    self._worker_tasks = [asyncio.create_task(self.classification_worker()) for i in range(10)]
+    self._worker_tasks = [
+        asyncio.create_task(self.classification_worker(), name=f"classification_worker_{i}")
+        for i in range(self._worker_count)  # 10 workers
+    ]
 ```
 
 **Worker Loop:**
@@ -431,43 +372,72 @@ async def classification_worker(self):
         # Fetch batch and tickets from DB
         batch_info_and_tickets = await self._db_ref.get_batch_info_and_tickets(batch_id)
 
-        # Build request to Sarvam
-        classification_input = ClassificationRequestMessageInputModel(
-            tickets=[TickerInformation(ticket_id=t.ticket_id, description=t.content) for t in tickets]
-        )
-
         # Call Sarvam API with retry (3 attempts, exponential backoff)
         classification_response = await self.invoke_sarvam_for_classification(classification_input)
 
         # Parse response (strips thinking blocks)
         parsed = self._parse_classification_response(classification_response)
 
-        # Update batch and tickets in DB
+        # Update batch with summary and ticket responses
         await self._db_ref.update_batch(UpdateBatchInput(
             batch_id=batch_id,
             batch_state="processed",
             batch_summary=parsed.summary,
-            ticket_updates=[TicketUpdateItem(ticket_id=item.ticket_id, state="completed", response=item.category) ...]
+            ticket_updates=[TicketUpdateItem(...) for item in parsed.ticket_classifications],
         ))
 ```
 
-**Sarvam Request Format:**
+---
+
+### 4. SummarizationChannel (`engine/operators/summarization_channel.py`)
+
+**Purpose:** Worker pool for creating consolidated summaries from batch summaries
+
+**Initialization:**
 ```python
-SarvamAPIRequest(
-    model="sarvam-m",
-    max_tokens=2000,
-    messages=[
-        SarvamMessages(role="system", content=classification_job_system_message),
-        SarvamMessages(role="user", content=json.dumps([t.model_dump() for t in classification_input.tickets]))
+async def initialize(self):
+    self._summarization_queue = asyncio.Queue()
+    self._worker_tasks = [
+        asyncio.create_task(self.summarization_worker(), name=f"summarization_worker_{i}")
+        for i in range(self._worker_count)  # 3 workers
     ]
-)
 ```
 
-**System Prompt:** Instructs LLM to classify into: hardware_issue, software_issue, model_quality, billing, other
+**Worker Loop:**
+```python
+async def summarization_worker(self):
+    while True:
+        request_id = await self._summarization_queue.get()
+
+        # Get all batch summaries for this request
+        batch_summaries = await self._db_ref.get_batch_summaries_for_request(request_id)
+
+        # Build summarization request with batch summaries
+        summarization_input = [
+            {"batch_number": i + 1, "summary": summary}
+            for i, summary in enumerate(batch_summaries)
+        ]
+
+        # Call Sarvam API with retry
+        raw_response = await self.invoke_sarvam_for_summarization(summarization_input)
+        final_summary = self._parse_summarization_response(raw_response)
+
+        # Update request record with final summary
+        await self._db_ref.update_request_summary(request_id, final_summary)
+
+        # Emit event
+        await self._event_bus.emit(
+            SUMMARIZATION_ALL_BATCHES_COMPLETED_EVENT,
+            data=SummarizationAllBatchesCompletedPayload(
+                request_id=request_id,
+                summary=final_summary,
+            ).model_dump(),
+        )
+```
 
 ---
 
-### 4. FutureManager (`engine/operators/future_manager.py`)
+### 5. FutureManager (`engine/operators/future_manager.py`)
 
 **Purpose:** Maps request_id to asyncio.Future for async coordination
 
@@ -475,88 +445,62 @@ SarvamAPIRequest(
 
 ```python
 class FutureManager:
-    def register(self, request_id: str) -> asyncio.Future[str]:
-        """Create a new future for this request"""
-        future = loop.create_future()
-        self._futures[request_id] = future
-        return future
+    def register(self, request_id: str, future_type: str = "classification") -> asyncio.Future[str]:
+        """Create a new future for this request and future_type."""
+        if future_type == "classification":
+            self._classification_futures[request_id] = loop.create_future()
+        else:
+            self._summarization_futures[request_id] = loop.create_future()
 
-    async def wait(self, request_id: str, timeout: float = 2000) -> str:
-        """Block until future is resolved"""
-        return await asyncio.wait_for(self._futures[request_id], timeout=timeout)
-
-    async def _on_classification_all_batches_completed(self, data: Any) -> None:
-        """EventBus callback - resolves the future"""
-        payload = ClassificationAllBatchesCompletedPayload.model_validate(data)
-        future = self._futures.get(payload.request_id)
-        future.set_result(payload.request_id)
+    async def wait(self, request_id: str, timeout: float = 2000, future_type: str = "classification") -> str:
+        """Block until future is resolved for the specified future_type."""
+        if future_type == "classification":
+            return await asyncio.wait_for(self._classification_futures[request_id], timeout=timeout)
+        return await asyncio.wait_for(self._summarization_futures[request_id], timeout=timeout)
 ```
 
-**Event Subscription:**
-```python
-async def initialize(self):
-    await self._event_bus.subscribe(
-        CLASSIFICATION_ALL_BATCHES_COMPLETED_EVENT,
-        self._on_classification_all_batches_completed,
-    )
-```
+**Events Subscribed:**
+- `classification_all_batches_completed` → resolves classification future
+- `summarization_all_batches_completed` → resolves summarization future
 
 ---
 
-### 5. EventBus (`engine/event_bus.py`)
+### 6. EventBus (`engine/event_bus.py`)
 
 **Purpose:** Pub/sub for domain events
 
-**Key Event:** `CLASSIFICATION_ALL_BATCHES_COMPLETED_EVENT`
+**Events:**
 
-**Emission Point** (`engine/operators/db/db.py`):
-```python
-async def update_batch(self, input: UpdateBatchInput) -> None:
-    # ... update logic ...
-
-    # Check if all batches complete
-    batches_completed = await self.get_all_batches_completed(request_id)
-    if batches_completed.completed and self._event_bus is not None:
-        await self._event_bus.emit(
-            CLASSIFICATION_ALL_BATCHES_COMPLETED_EVENT,
-            data=ClassificationAllBatchesCompletedPayload(
-                request_id=request_id,
-                batch_count=batch_count,
-            ).model_dump(),
-        )
-```
-
-**Payload:**
-```python
-class ClassificationAllBatchesCompletedPayload(BaseModel):
-    request_id: str
-    batch_count: int
-```
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `classification_all_batches_completed` | `ClassificationAllBatchesCompletedPayload` | All batches for a request finished classification |
+| `summarization_all_batches_completed` | `SummarizationAllBatchesCompletedPayload` | Summarization completed, contains final summary |
 
 ---
 
-### 6. DBDatabase (`engine/operators/db/db.py`)
+### 7. DBDatabase (`engine/operators/db/db.py`)
 
 **Purpose:** MongoDB wrapper with schema validation
 
-**Collections:**
-- `requests` - Parse requests
-- `batches` - Batches of tickets
-- `tickets` - Individual ticket records
+**New Methods:**
 
-**Key Methods:**
+```python
+async def get_batch_summaries_for_request(self, request_id: str) -> list[str]:
+    """Get all batch_summary values for batches in a request."""
+    batches = list(self.batches_collection.find({"request_id": request_id}))
+    return [b.get("batch_summary", "") for b in batches if b.get("batch_summary")]
 
-| Method | Description |
-|--------|-------------|
-| `add_request()` | Create request record |
-| `add_batch()` | Create batch record |
-| `add_ticket()` | Create ticket record |
-| `get_batch_info_and_tickets()` | Fetch batch + tickets for processing |
-| `update_batch()` | Update batch state and ticket responses |
-| `get_all_batches_completed()` | Check if all batches for request are processed |
-| `get_ticket_responses()` | Get all tickets with their responses |
+async def update_request_summary(self, request_id: str, summary: str) -> None:
+    """Update request's response_summary and state to 'summarized'."""
+    self.requests_collection.update_one(
+        {"request_id": request_id},
+        {"$set": {"response_summary": summary, "state": "summarized", "updatedAt": self._now()}}
+    )
 
-**Schema Validation:** Auto-applied from `schema.json` on initialization
+async def get_request(self, request_id: str) -> Optional[Dict[str, Any]]:
+    """Get a request record by request_id."""
+    return self.requests_collection.find_one({"request_id": request_id})
+```
 
 ---
 
@@ -568,12 +512,8 @@ class ClassificationAllBatchesCompletedPayload(BaseModel):
 ```json
 {
   "tickets": [
-    {
-      "description": "My screen is flickering when I connect to the projector"
-    },
-    {
-      "description": "The billing amount seems incorrect for last month"
-    }
+    {"description": "My screen is flickering when I connect to the projector"},
+    {"description": "The billing amount seems incorrect for last month"}
   ]
 }
 ```
@@ -587,17 +527,11 @@ class ClassificationAllBatchesCompletedPayload(BaseModel):
       "classification": "hardware_issue"
     }
   ],
-  "failures": []
-}
-```
-
-**Response with Failures (200 OK):**
-```json
-{
-  "success": [],
-  "failures": [
-    "The billing amount seems incorrect for last month"
-  ]
+  "failures": [],
+  "summary": "Hardware issues dominate the ticket volume with display connectivity problems being most common. Billing concerns form a secondary category requiring attention.",
+  "total": 1,
+  "success_count": 1,
+  "failure_count": 0
 }
 ```
 
@@ -609,7 +543,8 @@ class ClassificationAllBatchesCompletedPayload(BaseModel):
 |----------|----------|
 | Sarvam API timeout | Retry 3 times with exponential backoff |
 | Invalid response format | Log error, mark ticket as failure |
-| All batches timeout (>2000s) | Raise asyncio.TimeoutError |
+| Classification timeout (>2000s) | Raise asyncio.TimeoutError |
+| Summarization timeout (>2000s) | Raise asyncio.TimeoutError |
 | Rate limit exceeded | Return 429 Too Many Requests |
 | MongoDB connection failure | Raise connection exception |
 
@@ -622,20 +557,21 @@ engine/
 ├── main.py                          # Entry point
 ├── orchestrator.py                  # TicketPipeline - component wiring
 ├── application.py                   # TicketPipelineApplication - business logic
-├── event_bus.py                     # EventBus - pub/sub
+├── event_bus.py                     # EventBus - pub/sub (classification + summarization events)
 ├── reducers.py                      # TicketPipelineReducers - state management
 ├── models/
-│   ├── api_request_models.py        # HTTP request/response models
+│   ├── api_request_models.py        # HTTP request/response models (now includes summary)
 │   ├── classification_models.py     # Classification request/response
 │   ├── db_models.py                 # Database models
 │   └── http_client_models.py        # HTTP client models
 └── operators/
-    ├── operators.py                 # TicketPipelineOperators - composition
+    ├── operators.py                 # TicketPipelineOperators - composition (now includes summarization)
     ├── api_routes_handler.py        # FastAPI server + rate limiting
-    ├── classification_channel.py    # Worker pool
-    ├── future_manager.py            # Future coordination
+    ├── classification_channel.py     # Worker pool (10 workers)
+    ├── summarization_channel.py     # NEW: Worker pool (3 workers)
+    ├── future_manager.py            # Future coordination (now handles both types)
     └── db/
-        ├── db.py                    # DBDatabase - MongoDB wrapper
+        ├── db.py                    # DBDatabase - MongoDB wrapper (now has get_batch_summaries_for_request, update_request_summary, get_request)
         └── schema.json              # Schema validation
 ```
 
@@ -649,7 +585,8 @@ engine/
 | `SARVAM_BASE_URL` | `https://api.sarvam.ai/v1` | Sarvam API base URL |
 | `MONGO_HOST` | `localhost` | MongoDB host |
 | `MONGO_PORT` | `27017` | MongoDB port |
-| `WORKER_COUNT` | `10` | Number of classification workers |
+| `CLASSIFICATION_WORKER_COUNT` | `10` | Number of classification workers |
+| `SUMMARIZATION_WORKER_COUNT` | `3` | Number of summarization workers |
 | `BATCH_SIZE` | `25` | Max tickets per batch |
 | `RATE_LIMIT` | `5/minute` | API rate limit |
-| `FUTURE_TIMEOUT` | `2000s` | Max wait time for classification |
+| `FUTURE_TIMEOUT` | `2000s` | Max wait time for any stage |

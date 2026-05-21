@@ -18,6 +18,7 @@ from classes.BaseEventBus.base_event_bus import BaseEventBus, _BaseEventPayload
 # DOMAIN EVENT TOPICS (Constants for consistency)
 # ============================================================================
 CLASSIFICATION_ALL_BATCHES_COMPLETED_EVENT = "classification_all_batches_completed"
+SUMMARIZATION_ALL_BATCHES_COMPLETED_EVENT = "summarization_all_batches_completed"
 
 
 class ClassificationAllBatchesCompletedPayload(BaseModel):
@@ -31,12 +32,24 @@ class ClassificationAllBatchesCompletedEvent(_BaseEventPayload):
     """Event emitted when all batches for a request complete classification."""
 
 
+class SummarizationAllBatchesCompletedPayload(BaseModel):
+    """Payload emitted when summarization completes for a request."""
+
+    request_id: str = Field(description="Request whose summarization is complete")
+    summary: str = Field(description="The final consolidated summary")
+
+
+class SummarizationAllBatchesCompletedEvent(_BaseEventPayload):
+    """Event emitted when all batches for a request complete summarization."""
+
+
 # ============================================================================
 # TOPIC TO EVENT CLASS REGISTRY
 # ============================================================================
 
 EVENT_CLASS_MAP = {
     CLASSIFICATION_ALL_BATCHES_COMPLETED_EVENT: ClassificationAllBatchesCompletedEvent,
+    SUMMARIZATION_ALL_BATCHES_COMPLETED_EVENT: SummarizationAllBatchesCompletedEvent,
 }
 
 

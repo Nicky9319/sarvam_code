@@ -23,8 +23,12 @@ class TicketParseBatchResponse(BaseModel):
     failures: list[str] = Field(
         description="Original ticket descriptions that failed classification"
     )
+    summary: Optional[str] = Field(
+        default=None,
+        description="Consolidated summary of all batch summaries"
+    )
 
-    @computed_field 
+    @computed_field
     def total(self) -> int:
         return len(self.success) + len(self.failures)
     

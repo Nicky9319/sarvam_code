@@ -15,6 +15,7 @@ from engine.models.db_models import (
     AddRequestOutput,
     AddTicketOutput,
     BatchRecord,
+    BatchSummaryItem,
     GetAllBatchesCompletedOutput,
     GetBatchInfoAndTicketsOutput,
     GetTickerResponsesOutput,
@@ -911,6 +912,184 @@ class DBDatabase:
             batch_record = BatchRecord.model_validate(batch) if batch else None
             ticket_records = [TicketRecord.model_validate(t) for t in tickets]
             return GetBatchInfoAndTicketsOutput(batch=batch_record, tickets=ticket_records)
+        except Exception as e:
+            await self._logger.error(
+                "Function ended with exception",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
+
+    async def get_batch_summaries_for_request(self, request_id: str) -> List[BatchSummaryItem]:
+        """
+        Get all batch summaries for a request, ordered by batch_number.
+
+        Processing Steps:
+        Step 1: Query all batches for request_id
+        Step 2: Sort by batch_number and return BatchSummaryItem list
+        """
+        try:
+            await self._logger.info(
+                "Function started",
+                request_id=request_id
+            )
+
+            try:
+                batches = list(self.batches_collection.find({"request_id": request_id}))
+            except PyMongoError as e:
+                await self._logger.error(
+                    "MongoDB query failed",
+                    request_id=request_id,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                raise
+
+            batches.sort(key=lambda b: b.get("batch_number", 0))
+            summaries = [
+                BatchSummaryItem(
+                    batch_number=batch["batch_number"],
+                    summary=batch.get("batch_summary")
+                    or "(no summary available for this batch)",
+                )
+                for batch in batches
+            ]
+
+            await self._logger.info(
+                "Function ended successfully",
+                request_id=request_id,
+                summary_count=len(summaries)
+            )
+            return summaries
+
+        except Exception as e:
+            await self._logger.error(
+                "Function ended with exception",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
+
+    async def update_request_state(self, request_id: str, state: str) -> None:
+        """Update the request state (classification, summarization, or completed)."""
+        try:
+            await self._logger.info(
+                "Function started",
+                request_id=request_id,
+                state=state,
+            )
+
+            try:
+                result = self.requests_collection.update_one(
+                    {"request_id": request_id},
+                    {"$set": {"state": state, "updatedAt": self._now()}},
+                )
+                await self._logger.debug(
+                    "Request state update completed",
+                    request_id=request_id,
+                    matched_count=result.matched_count,
+                )
+            except PyMongoError as e:
+                await self._logger.error(
+                    "MongoDB update failed",
+                    request_id=request_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                raise
+
+            await self._logger.info("Function ended successfully")
+
+        except Exception as e:
+            await self._logger.error(
+                "Function ended with exception",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            raise
+
+    async def update_request_summary(self, request_id: str, summary: str) -> None:
+        """
+        Update the response_summary field of a request.
+
+        Processing Steps:
+        Step 1: Update request's response_summary field
+        Step 2: Update the request's state to 'completed'
+        """
+        try:
+            await self._logger.info(
+                "Function started",
+                request_id=request_id,
+                summary_length=len(summary)
+            )
+
+            try:
+                result = self.requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "response_summary": summary,
+                            "state": "completed",
+                            "updatedAt": self._now()
+                        }
+                    }
+                )
+                await self._logger.debug(
+                    "Request summary update completed",
+                    request_id=request_id,
+                    matched_count=result.matched_count
+                )
+            except PyMongoError as e:
+                await self._logger.error(
+                    "MongoDB update failed",
+                    request_id=request_id,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                raise
+
+            await self._logger.info("Function ended successfully")
+
+        except Exception as e:
+            await self._logger.error(
+                "Function ended with exception",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
+
+    async def get_request(self, request_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a request record by request_id.
+
+        Processing Steps:
+        Step 1: Query the request by request_id
+        Step 2: Return the document or None
+        """
+        try:
+            await self._logger.info(
+                "Function started",
+                request_id=request_id
+            )
+
+            try:
+                request = self.requests_collection.find_one({"request_id": request_id})
+            except PyMongoError as e:
+                await self._logger.error(
+                    "MongoDB query failed",
+                    request_id=request_id,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                raise
+
+            await self._logger.info(
+                "Function ended successfully",
+                request_id=request_id,
+                found=request is not None
+            )
+            return request
+
         except Exception as e:
             await self._logger.error(
                 "Function ended with exception",

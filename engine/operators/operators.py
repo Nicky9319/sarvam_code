@@ -6,6 +6,7 @@ from engine.operators.classification_channel import ClassificationChannel
 from engine.operators.future_manager import FutureManager
 from engine.operators.http_client import HTTPAPIClient
 from engine.operators.db.db import DBDatabase
+from engine.operators.summarization_channel import SummarizationChannel
 
 
 class TicketPipelineOperators:
@@ -52,6 +53,15 @@ class TicketPipelineOperators:
         )
         await self._future_manager.initialize()
 
+        self._summarization_channel = SummarizationChannel(
+            logger=self.logger,
+            db_ref=self._db,
+            http_api_client=self._http_api_client,
+            event_bus=self._event_bus,
+            worker_count=5,
+        )
+        await self._summarization_channel.initialize()
+
         self._api_routes_handler = APIRoutesHandler(
             application=None,
             logger=self.logger,
@@ -62,6 +72,7 @@ class TicketPipelineOperators:
     async def cleanup(self) -> None:
         await self._api_routes_handler.cleanup()
         await self._classification_channel.cleanup()
+        await self._summarization_channel.cleanup()
         await self._future_manager.cleanup()
         await self._http_api_client.cleanup()
         await self._db.cleanup()
@@ -89,3 +100,7 @@ class TicketPipelineOperators:
     @property
     def future_manager(self):
         return self._future_manager
+
+    @property
+    def summarization_channel(self):
+        return self._summarization_channel
