@@ -44,6 +44,7 @@ class TicketPipelineOperators:
             logger=self.logger,
             db_ref=self._db,
             http_api_client=self._http_api_client,
+            worker_count=int(os.getenv("CLASSIFICATION_WORKER_COUNT", "10")),
         )
         await self._classification_channel.initialize()
 
@@ -58,7 +59,7 @@ class TicketPipelineOperators:
             db_ref=self._db,
             http_api_client=self._http_api_client,
             event_bus=self._event_bus,
-            worker_count=5,
+            worker_count=int(os.getenv("SUMMARIZATION_WORKER_COUNT", "5")),
         )
         await self._summarization_channel.initialize()
 
@@ -104,3 +105,11 @@ class TicketPipelineOperators:
     @property
     def summarization_channel(self):
         return self._summarization_channel
+
+    @property
+    def classification_worker_count(self) -> int:
+        return self._classification_channel._worker_count
+
+    @property
+    def summarization_worker_count(self) -> int:
+        return self._summarization_channel._worker_count

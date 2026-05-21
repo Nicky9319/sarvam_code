@@ -124,6 +124,21 @@ class TicketPipelineApplication:
         summary = request_record.get("response_summary") if request_record else None
 
         duration_seconds = time.time() - start_time
+
+        success_count = len([t for t in tickets_output.responses if t.state == "completed"])
+        failure_count = len([t for t in tickets_output.responses if t.state != "completed"])
+
+        await self.db.add_metrics(
+            request_id=request_id,
+            duration_seconds=duration_seconds,
+            classification_worker_count=self.operators.classification_worker_count,
+            summarization_worker_count=self.operators.summarization_worker_count,
+            batch_count=len(batches),
+            ticket_count=len(tickets_output.responses),
+            success_count=success_count,
+            failure_count=failure_count,
+        )
+
         return self._to_parse_response(tickets_output, summary=summary, duration_seconds=duration_seconds)
 
     def _get_success_items(self, tickets_output: GetTickerResponsesOutput) -> list[TicketParseSuccessItem]:

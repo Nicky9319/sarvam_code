@@ -126,62 +126,95 @@ flowchart TB
         SarvamAPI["Sarvam API<br/>(api.sarvam.ai)"]
     end
 
-    subgraph Orchestrator["TicketPipeline (orchestrator.py)"]
+    subgraph Pipeline["TicketPipeline System"]
         direction TB
-        EventBus["EventBus<br/>(event_bus.py)"]
-        Reducers["TicketPipelineReducers<br/>(reducers.py)"]
-        Operators["TicketPipelineOperators<br/>(operators.py)"]
-        Application["TicketPipelineApplication<br/>(application.py)"]
-    end
 
-    subgraph Operators["TicketPipelineOperators"]
-        APIRoutes["APIRoutesHandler<br/>(FastAPI + Rate Limiter)"]
-        HTTPClient["HTTPAPIClient<br/>(Sarvam API Client)"]
-        DB["DBDatabase<br/>(MongoDB Wrapper)"]
-        ClassChannel["ClassificationChannel<br/>(10 Workers + Queue)"]
-        SumChannel["SummarizationChannel<br/>(3 Workers + Queue)"]
-        FutureMgr["FutureManager<br/>(request_id → Future)"]
-    end
+        subgraph Core["Core Orchestrator Layer"]
+            EventBus["EventBus<br/>(event_bus.py)"]
+            Reducers["TicketPipelineReducers<br/>(reducers.py)"]
+            OperatorsCore["TicketPipelineOperators<br/>(operators.py)"]
+            Application["TicketPipelineApplication<br/>(application.py)"]
+        end
 
-    subgraph ClassWorkers["ClassificationChannel"]
-        direction LR
-        CW1["Worker 1"]
-        CW2["Worker 2"]
-        CW10["Worker 10"]
-    end
+        subgraph Infra["Infrastructure / Service Layer"]
+            APIRoutes["APIRoutesHandler<br/>(FastAPI + Rate Limiter)"]
+            HTTPClient["HTTPAPIClient<br/>(Sarvam API Client)"]
+            DB["DBDatabase<br/>(MongoDB Wrapper)"]
+            FutureMgr["FutureManager<br/>(request_id → Future)"]
 
-    subgraph SumWorkers["SummarizationChannel"]
-        direction LR
-        SW1["Worker 1"]
-        SW2["Worker 2"]
-        SW3["Worker 3"]
+            subgraph Classification["ClassificationChannel"]
+                direction TB
+                ClassQueue["Async Queue"]
+                subgraph ClassWorkers["10 Classification Workers"]
+                    direction LR
+                    CW1["Worker 1"]
+                    CW2["Worker 2"]
+                    CW3["..."]
+                    CW10["Worker 10"]
+                end
+            end
+
+            subgraph Summarization["SummarizationChannel"]
+                direction TB
+                SumQueue["Async Queue"]
+                subgraph SumWorkers["3 Summarization Workers"]
+                    direction LR
+                    SW1["Worker 1"]
+                    SW2["Worker 2"]
+                    SW3["Worker 3"]
+                end
+            end
+        end
     end
 
     subgraph Database["MongoDB"]
-        ReqColl["requests collection"]
-        BatchColl["batches collection"]
-        TicketColl["tickets collection"]
+        ReqColl["requests"]
+        BatchColl["batches"]
+        TicketColl["tickets"]
     end
 
+    %% Request Flow
     Client -->|"POST /api/v1/tickets/parse"| APIRoutes
     APIRoutes --> Application
+
+    %% Application Coordination
     Application --> DB
     Application --> FutureMgr
-    Application --> ClassChannel
-    Application --> SumChannel
-    ClassChannel --> ClassWorkers
-    ClassWorkers --> HTTPClient
+    Application --> ClassQueue
+    Application --> SumQueue
+
+    %% Worker Pipelines
+    ClassQueue --> ClassWorkers
+    SumQueue --> SumWorkers
+
+    %% External API Calls
+    CW1 --> HTTPClient
+    CW2 --> HTTPClient
+    CW10 --> HTTPClient
+
+    SW1 --> HTTPClient
+    SW2 --> HTTPClient
+    SW3 --> HTTPClient
+
     HTTPClient --> SarvamAPI
-    SumChannel --> SumWorkers
-    SumWorkers --> HTTPClient
+
+    %% Persistence
     DB --> ReqColl
     DB --> BatchColl
     DB --> TicketColl
-    ClassWorkers --> DB
-    SumWorkers --> DB
-    EventBus --> FutureMgr
+
+    CW1 --> DB
+    CW2 --> DB
+    CW10 --> DB
+
+    SW1 --> DB
+    SW2 --> DB
+    SW3 --> DB
+
+    %% Event Driven Completion
     DB --> EventBus
-    FutureMgr -.->|future.set_result()| Application
+    EventBus --> FutureMgr
+    FutureMgr -.->|"future.set_result()"| Application
 ```
 
 ---

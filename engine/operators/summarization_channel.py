@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import re
 from typing import Optional
 
@@ -60,13 +61,13 @@ class SummarizationChannel:
         db_ref: DBDatabase,
         http_api_client: HTTPAPIClient,
         event_bus: Optional[EventBus],
-        worker_count: int = 3,
+        worker_count: int = None,
     ) -> None:
         self._logger: LogSidecar = logger
         self._db_ref: DBDatabase = db_ref
         self.http_api_client: HTTPAPIClient = http_api_client
         self._event_bus = event_bus
-        self._worker_count = worker_count
+        self._worker_count = worker_count if worker_count is not None else int(os.getenv("SUMMARIZATION_WORKER_COUNT", "5"))
         self._worker_tasks: list[asyncio.Task] = []
         self._summarization_queue: asyncio.Queue = None
 

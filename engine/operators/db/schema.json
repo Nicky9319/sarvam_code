@@ -150,6 +150,59 @@
       },
       "validationLevel": "strict",
       "validationAction": "error"
+    },
+    {
+      "name": "metrics",
+      "validator": {
+        "$jsonSchema": {
+          "bsonType": "object",
+          "title": "metrics",
+          "required": [
+            "request_id",
+            "createdAt"
+          ],
+          "properties": {
+            "request_id": {
+              "bsonType": "string",
+              "description": "reference to parent request, UUID4"
+            },
+            "duration_seconds": {
+              "bsonType": "number",
+              "description": "time in seconds taken to process the request"
+            },
+            "classification_worker_count": {
+              "bsonType": "int",
+              "description": "number of classification workers used"
+            },
+            "summarization_worker_count": {
+              "bsonType": "int",
+              "description": "number of summarization workers used"
+            },
+            "batch_count": {
+              "bsonType": "int",
+              "description": "number of batches formed for this request"
+            },
+            "ticket_count": {
+              "bsonType": "int",
+              "description": "number of tickets in the request"
+            },
+            "success_count": {
+              "bsonType": "int",
+              "description": "number of successfully classified tickets"
+            },
+            "failure_count": {
+              "bsonType": "int",
+              "description": "number of failed tickets"
+            },
+            "createdAt": {
+              "bsonType": "date",
+              "description": "timestamp when metrics were recorded"
+            }
+          }
+        }
+      },
+      "validationLevel": "strict",
+      "validationAction": "error"
     }
   ]
 }

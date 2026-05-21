@@ -276,6 +276,10 @@ class DBDatabase:
     def tickets_collection(self) -> Collection:
         return self._db()["tickets"]
 
+    @property
+    def metrics_collection(self) -> Collection:
+        return self._db()["metrics"]
+
     # Request operations
     async def add_request(
         self,
@@ -1089,6 +1093,148 @@ class DBDatabase:
                 found=request is not None
             )
             return request
+
+        except Exception as e:
+            await self._logger.error(
+                "Function ended with exception",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
+
+    # Metrics operations
+    async def add_metrics(
+        self,
+        request_id: str,
+        duration_seconds: float,
+        classification_worker_count: int,
+        summarization_worker_count: int,
+        batch_count: int,
+        ticket_count: int,
+        success_count: int,
+        failure_count: int,
+    ) -> None:
+        """
+        Add a metrics record for a completed request.
+
+        Processing Steps:
+        Step 1: Create metrics document with all fields
+        Step 2: Insert into metrics collection
+        """
+        try:
+            await self._logger.info(
+                "Function started",
+                request_id=request_id,
+                duration_seconds=duration_seconds,
+            )
+
+            now = self._now()
+            doc = {
+                "request_id": request_id,
+                "duration_seconds": duration_seconds,
+                "classification_worker_count": classification_worker_count,
+                "summarization_worker_count": summarization_worker_count,
+                "batch_count": batch_count,
+                "ticket_count": ticket_count,
+                "success_count": success_count,
+                "failure_count": failure_count,
+                "createdAt": now,
+            }
+
+            try:
+                self.metrics_collection.insert_one(doc)
+            except PyMongoError as e:
+                await self._logger.error(
+                    "MongoDB insert failed",
+                    request_id=request_id,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                raise
+
+            await self._logger.info(
+                "Function ended successfully",
+                request_id=request_id
+            )
+
+        except Exception as e:
+            await self._logger.error(
+                "Function ended with exception",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
+
+    async def get_metrics(self, request_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get metrics for a request.
+
+        Processing Steps:
+        Step 1: Query metrics by request_id
+        Step 2: Return the document or None
+        """
+        try:
+            await self._logger.info(
+                "Function started",
+                request_id=request_id
+            )
+
+            try:
+                metrics = self.metrics_collection.find_one({"request_id": request_id})
+            except PyMongoError as e:
+                await self._logger.error(
+                    "MongoDB query failed",
+                    request_id=request_id,
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                raise
+
+            await self._logger.info(
+                "Function ended successfully",
+                request_id=request_id,
+                found=metrics is not None
+            )
+            return metrics
+
+        except Exception as e:
+            await self._logger.error(
+                "Function ended with exception",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
+
+    async def get_all_metrics(self, limit: int = 100) -> list[Dict[str, Any]]:
+        """
+        Get all metrics records, ordered by createdAt descending.
+
+        Processing Steps:
+        Step 1: Query metrics collection with limit
+        Step 2: Return list of documents
+        """
+        try:
+            await self._logger.info(
+                "Function started",
+                limit=limit
+            )
+
+            try:
+                cursor = self.metrics_collection.find().sort("createdAt", -1).limit(limit)
+                metrics_list = list(cursor)
+            except PyMongoError as e:
+                await self._logger.error(
+                    "MongoDB query failed",
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                raise
+
+            await self._logger.info(
+                "Function ended successfully",
+                count=len(metrics_list)
+            )
+            return metrics_list
 
         except Exception as e:
             await self._logger.error(

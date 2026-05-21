@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import re
 
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
@@ -78,12 +79,12 @@ class ClassificationChannel:
         logger: LogSidecar,
         db_ref: DBDatabase,
         http_api_client: HTTPAPIClient,
-        worker_count: int = 10,
+        worker_count: int = None,
     ) -> None:
         self._logger: LogSidecar = logger
         self._db_ref: DBDatabase = db_ref
         self.http_api_client: HTTPAPIClient = http_api_client
-        self._worker_count = worker_count
+        self._worker_count = worker_count if worker_count is not None else int(os.getenv("CLASSIFICATION_WORKER_COUNT", "10"))
         self._worker_tasks: list[asyncio.Task] = []
 
     async def initialize(self) -> None:
