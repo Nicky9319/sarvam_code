@@ -9,6 +9,9 @@ from engine.models.db_models import GetTickerResponsesOutput
 from engine.operators.db.db import DBDatabase
 from engine.operators.operators import TicketPipelineOperators
 
+import time
+
+
 
 class TicketPipelineApplication:
     def __init__(
@@ -34,11 +37,13 @@ class TicketPipelineApplication:
         self,
         tickets_output: GetTickerResponsesOutput,
         summary: Optional[str] = None,
+        duration_seconds: Optional[float] = None,
     ) -> TicketParseBatchResponse:
         return TicketParseBatchResponse(
             success=self._get_success_items(tickets_output),
             failures=self._get_failure_items(tickets_output),
             summary=summary,
+            duration_seconds=duration_seconds,
         )
 
     async def process_tickets_request(self, request: TicketParseRequest) -> TicketParseBatchResponse:
@@ -53,6 +58,8 @@ class TicketPipelineApplication:
             7. Waits for summarization to complete via FutureManager
             8. Returns classified tickets with consolidated summary as TicketParseBatchResponse
         """
+        start_time = time.time()
+
         request_output = await self.db.add_request(
             state="classification",
             request_id=None,
@@ -61,7 +68,8 @@ class TicketPipelineApplication:
         await self.logger.info(f"Request added to database with id: {request_id}")
 
         if not request.tickets:
-            return TicketParseBatchResponse(success=[], failures=[], summary=None)
+            duration_seconds = time.time() - start_time
+            return TicketParseBatchResponse(success=[], failures=[], summary=None, duration_seconds=duration_seconds)
 
         self.operators.future_manager.register(request_id, future_type="classification")
 
@@ -115,7 +123,8 @@ class TicketPipelineApplication:
         request_record = await self.db.get_request(request_id)
         summary = request_record.get("response_summary") if request_record else None
 
-        return self._to_parse_response(tickets_output, summary=summary)
+        duration_seconds = time.time() - start_time
+        return self._to_parse_response(tickets_output, summary=summary, duration_seconds=duration_seconds)
 
     def _get_success_items(self, tickets_output: GetTickerResponsesOutput) -> list[TicketParseSuccessItem]:
         return [

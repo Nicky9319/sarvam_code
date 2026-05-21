@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 
 class TicketParseRequest(BaseModel):
@@ -27,6 +27,10 @@ class TicketParseBatchResponse(BaseModel):
     summary: Optional[str] = Field(
         default=None,
         description="Consolidated summary of all batch summaries"
+    )
+    duration_seconds: Optional[float] = Field(
+        default=None,
+        description="Time in seconds taken to process the response"
     )
 
     @computed_field
