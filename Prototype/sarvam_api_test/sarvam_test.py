@@ -1,9 +1,10 @@
-from openai import OpenAI
-import os
-from dotenv import load_dotenv
-from test_cases import test_case_1
 import json
+import os
 import re
+
+from dotenv import load_dotenv
+from openai import OpenAI
+from test_cases import test_case_1
 
 load_dotenv()
 

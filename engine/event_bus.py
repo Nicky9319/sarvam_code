@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 
 from classes.BaseEventBus.base_event_bus import BaseEventBus, _BaseEventPayload
 
-
 # ============================================================================
 # DOMAIN EVENT TOPICS (Constants for consistency)
 # ============================================================================

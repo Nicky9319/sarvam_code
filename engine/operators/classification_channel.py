@@ -2,6 +2,8 @@ import asyncio
 import json
 import re
 
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter
+
 from classes.Logger.logger import LogSidecar
 from engine.models.classification_models import (
     ClassificationRequestMessageInputModel,
@@ -12,8 +14,6 @@ from engine.models.db_models import TicketRecord, TicketUpdateItem, UpdateBatchI
 from engine.models.http_client_models import SarvamAPIRequest, SarvamMessages
 from engine.operators.db.db import DBDatabase
 from engine.operators.http_client import HTTPAPIClient
-from tenacity import retry, stop_after_attempt, wait_exponential_jitter
-
 
 classification_job_system_message = """
 You are a technical assistant with more than 10 years of experience.

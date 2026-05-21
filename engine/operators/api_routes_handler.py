@@ -1,15 +1,16 @@
-from typing import Optional, TYPE_CHECKING
 import asyncio
 import os
+from typing import TYPE_CHECKING, Optional
+
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from prometheus_client import REGISTRY, CollectorRegistry, multiprocess
 from prometheus_fastapi_instrumentator import Instrumentator
-from prometheus_client import CollectorRegistry, multiprocess, REGISTRY
 from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-from fastapi.responses import JSONResponse
 
 from classes.Logger.logger import LogSidecar
 
@@ -17,12 +18,7 @@ if TYPE_CHECKING:
     from engine.application import TicketPipelineApplication
 
 
-from engine.models.api_request_models import (
-    TicketParseRequest,
-    TicketParseBatchResponse,
-    HealthCheckResponse
-)
-
+from engine.models.api_request_models import HealthCheckResponse, TicketParseBatchResponse, TicketParseRequest
 
 # ---------------------------------------------------------------------------
 # API handler

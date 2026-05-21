@@ -2,9 +2,14 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 from pymongo import MongoClient
+from pymongo.collection import Collection
+from pymongo.database import Database
+from pymongo.errors import PyMongoError
+
+from classes.Logger.logger import LogSidecar
 from engine.event_bus import (
     CLASSIFICATION_ALL_BATCHES_COMPLETED_EVENT,
     ClassificationAllBatchesCompletedPayload,
@@ -24,11 +29,6 @@ from engine.models.db_models import (
     UpdateBatchInput,
     UpdateBatchOutput,
 )
-from pymongo.database import Database
-from pymongo.collection import Collection
-from pymongo.errors import CollectionInvalid, PyMongoError
-
-from classes.Logger.logger import LogSidecar
 
 
 class DBDatabase:

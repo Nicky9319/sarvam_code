@@ -3,9 +3,9 @@ import os
 from engine.classes.StateStore.state_store import StateStoreSidecar
 from engine.operators.api_routes_handler import APIRoutesHandler
 from engine.operators.classification_channel import ClassificationChannel
+from engine.operators.db.db import DBDatabase
 from engine.operators.future_manager import FutureManager
 from engine.operators.http_client import HTTPAPIClient
-from engine.operators.db.db import DBDatabase
 from engine.operators.summarization_channel import SummarizationChannel
 
 
